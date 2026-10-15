@@ -1,21 +1,21 @@
-# Blast Radius
+﻿# Blast Radius
 
 **AI on-call agents that run on a graph.** Blast Radius traces *why* production broke, *what* it affects and
 *who* should fix it. It remembers every incident and shows the exact graph path behind each answer.
 FalkorDB is the agents' shared brain: system topology, ownership, change history, incident memory and
 agent checkpoints all live in it.
 
-Built for **Graph Hacks 2026** (WeMakeDevs × FalkorDB).
-**Tracks entered:** Agents That Act on Connected Data · Agent Memory and Coordination · Company Brain
+Built for **Graph Hacks 2026** (WeMakeDevs Ã— FalkorDB).
+**Tracks entered:** Agents That Act on Connected Data Â· Agent Memory and Coordination Â· Company Brain
 
-> Status: in progress during the hackathon (Oct 15–18, 2026).
+> Status: in progress during the hackathon (Oct 15â€“18, 2026).
 
 ## Why a graph
 Incident questions are relationship questions:
-- *What breaks if `payment` goes down?* → everything that transitively depends on it
-- *Ten services are alerting — which one is the cause?* → the dependency they all share
-- *What changed near the failure?* → changes in the service **and its dependencies**
-- *Who do I page?* → owner team → who is on call right now
+- *What breaks if `payment` goes down?* â†’ everything that transitively depends on it
+- *Ten services are alerting â€” which one is the cause?* â†’ the dependency they all share
+- *What changed near the failure?* â†’ changes in the service **and its dependencies**
+- *Who do I page?* â†’ owner team â†’ who is on call right now
 
 Each is one traversal in FalkorDB. Remove FalkorDB and the agents have no topology, no memory and no evidence.
 
@@ -73,7 +73,7 @@ The queries the product depends on are in [QUERIES.md](QUERIES.md).
 Requirements: Docker, Python 3.12, [uv](https://docs.astral.sh/uv/).
 
 ```bash
-# 1. Start FalkorDB (Browser UI at http://localhost:3000)
+# 1. Start FalkorDB (Browser UI at http://localhost:3006)
 docker compose up -d
 
 # 2. Create the virtual environment and install dependencies

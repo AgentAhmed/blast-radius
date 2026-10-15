@@ -4,7 +4,7 @@ services:
     container_name: blastradius-falkordb
     ports:
       - "6379:6379"   # graph database (Redis protocol)
-      - "3000:3000"   # FalkorDB Browser UI
+      - "3006:3000"   # FalkorDB Browser UI -> http://localhost:3006
     volumes:
       - falkordb-data:/var/lib/falkordb/data
     restart: unless-stopped
