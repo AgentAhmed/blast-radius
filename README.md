@@ -11,6 +11,8 @@ Built for **Graph Hacks 2026** (WeMakeDevs × FalkorDB).
 
 **Tracks entered:** ① Agents That Act on Connected Data · ② Agent Memory and Coordination · ③ Company Brain
 
+Issues opened by the agent during demos: [AgentAhmed/blast-radius-sandbox](https://github.com/AgentAhmed/blast-radius-sandbox/issues)
+
 ![Blast Radius console: a payment failure traced through the dependency graph](docs/images/console.png)
 
 ## The problem

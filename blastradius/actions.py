@@ -46,6 +46,8 @@ def github_issue(tenant, incident: str, title: str, body: str) -> dict:
         return {"id": action_id, "status": "already_done", "url": existing[0]["url"]}
 
     token, repo = os.getenv("GITHUB_TOKEN"), os.getenv("GITHUB_REPO")
+    if repo:   # accept "owner/repo" or a full https://github.com/owner/repo URL
+        repo = repo.strip().removesuffix(".git").removeprefix("https://github.com/").strip("/")
     status, url = "dry_run", None
     if token and repo:
         req = urllib.request.Request(
