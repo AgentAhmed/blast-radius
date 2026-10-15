@@ -84,6 +84,18 @@ curl -X POST "http://localhost:8007/api/alerts?tenant=gh-open-telemetry-opentele
   -d '{"alerts":[{"status":"firing","labels":{"alertname":"HighErrorRate","service":"payment","severity":"critical"}}]}'
 ```
 
+## 3. Actions in real tools (outbound)
+All optional, set in `.env`. Without them, actions are still recorded in the graph as `Action` nodes.
+
+| Setting | What happens | How to get it |
+|---|---|---|
+| `GITHUB_TOKEN` + `GITHUB_REPO` | The investigator opens an issue with the root cause, evidence and recommended fix. | Fine-grained token, **one repo only**, permission **Issues: Read and write**. `GITHUB_REPO` is `owner/repo` or the repo URL. |
+| `DISCORD_WEBHOOK_URL` | A message when the root cause is identified (severity, cause, confidence, who was paged, issue link) and another when the incident is resolved. | Server Settings → Integrations → Webhooks → New Webhook → Copy Webhook URL. |
+| `SLACK_WEBHOOK_URL` | Same messages, in Slack format. | api.slack.com/apps → Create New App → Incoming Webhooks → Add New Webhook to Workspace. |
+
+Each action has a deterministic id per incident, so it happens once even if a run is retried. A failed post is
+retried next time. Webhook URLs are secrets: they stay in `.env` and are never written to the graph or the logs.
+
 ## Verified on a real repository
 Connecting [open-telemetry/opentelemetry-demo](https://github.com/open-telemetry/opentelemetry-demo) produced
 26 components and 43 dependencies from its 4 compose files, plus real merged PRs and the `CODEOWNERS` team. The

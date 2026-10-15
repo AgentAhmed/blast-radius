@@ -6,13 +6,15 @@
 | FalkorDB | `docker-compose.yml` | The only database. One graph per tenant (`org_<tenant>`). |
 | Ingest | `ingest.py`, `data/`, `schema.py`, `memory.py` | Loads topology and company data, creates indexes, derives `DEPENDS_ON`, stores PageRank, embeds incidents and documents, links similar incidents. |
 | Queries | `queries.py` | All read Cypher used as agent tools ([QUERIES.md](../QUERIES.md)). |
-| Incidents | `incidents.py` | Alerts, incident creation, the fault simulator. |
+| Incidents | `incidents.py` | Alerts (simulated, or real via the Alertmanager-compatible webhook), incident creation, the fault simulator. |
+| Connectors | `connectors/github.py`, `connectors/repo_model.py` | Build a tenant graph from a public GitHub repo: compose files, `CODEOWNERS`, merged PRs, ADRs ([CONNECTORS.md](CONNECTORS.md)). |
+| Evaluation | `eval.py` | Injects every fault, runs the real investigator, scores it against hidden ground truth ([EVALUATION.md](EVALUATION.md)). |
 | Agent runtime | `agents/runtime.py`, `agents/store.py` | Tool-calling loop. Every step is saved in the graph, which gives resume and audit. |
 | Agents | `agents/incident_agents.py` | Triage, investigator, scribe, company brain. |
 | Tools | `agents/tools.py` | JSON-schema tool definitions wrapping the queries, with validation. |
 | Worker | `agents/worker.py` | Claims `Task` nodes, runs the agent for each, resumes paused runs. |
 | LLM gateway | `llm/` | Ordered provider slots (Groq, Gemini, OpenRouter, OpenAI, Claude, custom, Ollama), fallback, cooldowns, requests-per-minute budget. Claude goes through an official-SDK adapter. |
-| Actions | `actions.py` | Page the on-call person, open a GitHub issue. Each happens once. |
+| Actions | `actions.py` | Page the on-call person, open a GitHub issue, post to Slack/Discord (when identified and when resolved). Each happens once. |
 | API | `api.py` | REST for the UI. Runs the worker thread and serves the built UI. |
 | MCP | `mcp_server.py` | The graph tools and the brain agent, over the Model Context Protocol. |
 | UI | `ui/` | React + Cytoscape console. |
@@ -20,7 +22,7 @@
 ## Incident flow
 ```mermaid
 sequenceDiagram
-  participant Sim as Simulator / monitoring
+  participant Sim as Simulator / Alertmanager webhook
   participant G as FalkorDB
   participant T as Triage
   participant W as Worker
@@ -38,8 +40,10 @@ sequenceDiagram
     L-->>I: tool calls
     I->>G: run graph tools (Cypher), save Step + TOUCHED
   end
-  I->>G: Finding -[:SUPPORTED_BY]-> cited entities, PAGED on-call, issue Action
-  H->>G: resolve(fix) -> Task{record}
+  I->>G: graph consistency check (does the root cause cover the alerting components?)
+  I->>G: Finding -[:SUPPORTED_BY]-> cited entities, PAGED on-call, Action nodes
+  I-->>H: GitHub issue + Slack/Discord message
+  H->>G: resolve(fix) -> Task{record}, "resolved" chat message
   W->>S: write_memory(incident)
   S->>L: write postmortem + lesson
   S->>G: ROOT_CAUSE, RESOLVED_BY, postmortem Document, Lesson, embeddings, SIMILAR_TO
@@ -69,8 +73,10 @@ sequenceDiagram
 | Every provider unavailable | Run saved as `paused` with `resume_at`. The worker resumes it from the last completed step. |
 | Process crash mid-run | On restart, the conversation is rebuilt from `Step` nodes. Tool calls that never ran are run first. |
 | Model returns invalid tool arguments or an invalid root cause | The error goes back to the model as the tool result so it can correct itself. |
-| Model never finishes | After the step budget it is told to submit; if it still doesn't, the run is marked failed. |
-| Duplicate side effects | Page and issue `Action` nodes have deterministic ids and are created only once. |
+| Model contradicts the graph | A root cause that covers fewer alerting components than another candidate is sent back once with the numbers; after one rejection the next answer is accepted. |
+| Model never finishes | After the step budget it is told to submit, and only the final-answer tool is offered (two tries). If it still doesn't, the run is marked failed. |
+| Duplicate side effects | Page, issue and chat `Action` nodes have deterministic ids and are created only once. A failed post is retried on the next attempt. |
+| Webhook URL or token leaks | Secrets live only in `.env` (git-ignored). Chat webhook URLs are never written to the graph or logs. The GitHub token is fine-grained: one repo, Issues only. |
 
 ## Deployment
 - **Local:** `docker compose up -d` for FalkorDB, plus `uvicorn blastradius.api:app --port 8007`. Or run

@@ -64,12 +64,15 @@ evidence.
 ```mermaid
 flowchart LR
   SIM[Fault simulator<br/>OTel Demo flags] --> AL[(Alert nodes)]
+  AM[Alertmanager / Grafana<br/>webhook] --> AL
+  GH[GitHub repo<br/>compose, CODEOWNERS, PRs] --> |connector| FDB
   subgraph Agents
     TR[Triage<br/>deterministic] --> |Task: investigate| INV[Investigator<br/>LLM + graph tools]
     HUM[Human resolves] --> |Task: record| SCR[Scribe<br/>LLM]
   end
   AL --> TR
-  INV --> |Finding, PAGED, issue| FDB
+  INV --> |Finding, PAGED, evidence| FDB
+  INV --> ACT[GitHub issue<br/>Slack / Discord]
   SCR --> |Postmortem, Lesson,<br/>embeddings, SIMILAR_TO| FDB
   BRAIN[Company brain<br/>Q&A agent] --> FDB
   INV & SCR & BRAIN --> GW[LLM gateway<br/>Groq → Gemini → OpenRouter → OpenAI → Claude → custom → Ollama]
@@ -77,7 +80,8 @@ flowchart LR
   MCP[MCP server] --> FDB
   UI[Web console] --> API[FastAPI + worker] --> FDB
 ```
-More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/AGENTS.md](docs/AGENTS.md)
+More detail: [docs/DESIGN.md](docs/DESIGN.md) (problem to solution, start here) ·
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/AGENTS.md](docs/AGENTS.md)
 
 ## Graph data model
 One graph per tenant (`org_astroshop`, `org_nebula`) in one FalkorDB instance. Full model:
@@ -135,7 +139,8 @@ To work on the UI with hot reload, run `cd ui && npm run dev` and open http://lo
 
 ### Try it
 1. **Inject `paymentFailure`.** Four services alert. The investigator traces them to `payment` and the v3 SDK change
-   merged 2 hours ago, then pages the on-call owner.
+   merged 2 hours ago, then pages the on-call owner. With `GITHUB_TOKEN` or `DISCORD_WEBHOOK_URL` set, it also
+  opens a real issue and posts to your channel.
 2. **Resolve it** with the fix, for example *"Rolled back payment 1.4.0"*. The scribe writes a postmortem and a lesson
    into the graph.
 3. **Inject `paymentFailure` again.** The investigator recalls the incident you just resolved and recommends the same fix.
@@ -164,7 +169,6 @@ sources, and every agent and view works on it unchanged ([docs/CONNECTORS.md](do
   - people get stable pseudonyms by default
 - **Send real alerts** to `POST /api/alerts?tenant=...` in **Prometheus Alertmanager** format, or simple JSON.
   Labels like `service`, `app` or a pod name are mapped to components, and the agents investigate as usual.
-
 - **Act in real tools** (optional, in `.env`): `GITHUB_TOKEN` + `GITHUB_REPO` open real issues;
   `SLACK_WEBHOOK_URL` and/or `DISCORD_WEBHOOK_URL` post each incident to a channel when it is identified and
   when it is resolved. Without them, actions are recorded in the graph only.
@@ -209,7 +213,9 @@ blastradius/
   data/topology.py, data/synthetic.py   public OTel Demo topology + fictional company data
   ingest.py, schema.py, memory.py       load graph, indexes, derived edges, PageRank, embeddings
   queries.py                            all Cypher (see QUERIES.md)
-  incidents.py                          alerts, incidents, fault simulator
+  incidents.py                          alerts (simulated + webhook), incidents, fault simulator
+  connectors/                           GitHub repo -> tenant graph
+  eval.py                               evaluation harness (docs/EVALUATION.md)
   agents/runtime.py, agents/store.py    agent loop + checkpoints/tasks in FalkorDB
   agents/tools.py                       graph tools exposed to the LLM
   agents/incident_agents.py             triage, investigator, scribe, company brain
@@ -218,7 +224,9 @@ blastradius/
   actions.py                            page owner, GitHub issue, Slack/Discord post (idempotent)
   api.py, mcp_server.py, cli.py         HTTP API + worker, MCP server, CLI
 ui/                                     React + Cytoscape console
-docs/                                   architecture, graph model, agents, guides
+tests/                                  52 tests (graph queries, agents, LLM gateway, connectors, actions)
+deploy/huggingface/                     single-container image (FalkorDB + app)
+docs/                                   design, architecture, graph model, agents, connectors, evaluation
 ```
 
 ## Data

@@ -18,7 +18,7 @@ execute(run):
     loop:
         run any tool calls the model asked for that have no result yet   -> Step(kind=tool) + TOUCHED
             a terminal tool (submit_findings / final_answer / write_postmortem) ends the run
-        if over budget: tell the model to submit now
+        if over budget: tell the model to submit now, offer only the final tool (2 tries), then fail
         ask LLM gateway                                         -> Step(kind=llm)
             all providers busy -> Step(kind=pause), run.status = paused, resume_at
 ```
@@ -27,6 +27,10 @@ Key properties:
 - **No repeated work on resume.** Completed tool calls are in the trail, and only missing ones are run.
 - **Validation.** A terminal result can be rejected (for example, a root cause that isn't a known component). The
   error goes back to the model, which tries again.
+- **Graph consistency check.** The investigator's root cause must explain the alerts: if another component is a
+  dependency of more alerting components (or covers the same number and is alerting itself), the answer is sent back
+  once with the numbers. After one rejection the next answer is accepted, so the graph advises rather than vetoes.
+  A rejected answer earns one extra LLM call.
 - **Order.** If the model calls the final tool in the same turn as other tools, the final tool runs last.
 - **Readable times.** Epoch timestamps in tool results become "2h ago" before the model sees them.
 
