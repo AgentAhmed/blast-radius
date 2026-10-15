@@ -210,3 +210,22 @@ def test_root_cause_that_does_not_explain_the_alerts_is_sent_back_once():
     out = runtime.start(TENANT, incident_agents.INVESTIGATOR, "t", "sys", "user", incident=inc["id"], gw=llm)
     assert out["result"]["root_cause"] == "checkout"
     store.finish_task(TENANT, store.claim_task(TENANT, ["investigate"], "w")["id"])
+
+
+def test_out_of_budget_offers_only_the_final_tool():
+    inc = new_payment_incident()
+
+    class Recording(ScriptedLLM):
+        def chat(self, messages, tools=None, **kw):
+            self.offered = getattr(self, "offered", []) + [[t["function"]["name"] for t in tools]]
+            return super().chat(messages, tools=tools, **kw)
+
+    budget = incident_agents.INVESTIGATOR.max_llm_calls
+    # The model keeps querying until the budget runs out, ignores the first nudge, then answers.
+    llm = Recording([reply(call("component_overview", component="payment"))] * (budget + 1)
+                    + [reply(call("submit_findings", **FINDINGS))])
+    out = runtime.start(TENANT, incident_agents.INVESTIGATOR, "t", "sys", "user", incident=inc["id"], gw=llm)
+    assert out["status"] == "done" and out["result"]["root_cause"] == "payment"
+    assert len(llm.offered[0]) > 1
+    assert llm.offered[budget:] == [["submit_findings"], ["submit_findings"]]
+    store.finish_task(TENANT, store.claim_task(TENANT, ["investigate"], "w")["id"])

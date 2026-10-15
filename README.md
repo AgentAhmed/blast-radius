@@ -149,7 +149,7 @@ To work on the UI with hot reload, run `cd ui && npm run dev` and open http://lo
 python -m blastradius.cli root-cause payment checkout frontend frontend-proxy   # graph tools from the terminal
 python -m blastradius.agents.worker                                            # standalone worker(s)
 python -m blastradius.mcp_server                                               # MCP server (stdio)
-pytest                                                                          # 51 tests (FalkorDB must be running)
+pytest                                                                          # 52 tests (FalkorDB must be running)
 ```
 
 ## Run it on real data

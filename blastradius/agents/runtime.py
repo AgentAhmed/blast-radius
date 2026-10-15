@@ -77,10 +77,11 @@ def execute(tenant: str, spec: AgentSpec, run_id: str, gw: LLMGateway | None = N
             if final is not None:
                 return _finish(tenant, spec, run_id, final)
 
-        # 2. Out of budget: ask once more for the final answer, then give up. A rejected final answer
-        #    (e.g. a root cause the graph contradicts) earns one extra call to correct it.
+        # 2. Out of budget: ask for the final answer (up to twice) with only the final-answer tool offered, so
+        #    the model cannot keep querying; then give up. A rejected final answer (e.g. a root cause the graph
+        #    contradicts) earns one extra call to correct it.
         budget = spec.max_llm_calls + min(_rejected_finals(messages, spec), 2)
-        if llm_calls >= budget + 1:
+        if llm_calls >= budget + 2:
             store.set_status(tenant, run_id, "failed", error="step budget exhausted")
             return {"run_id": run_id, "status": "failed", "result": None}
         if llm_calls == budget:
@@ -88,10 +89,11 @@ def execute(tenant: str, spec: AgentSpec, run_id: str, gw: LLMGateway | None = N
             nudge = f"Step budget reached. Call {spec.terminal.name} now with what you know."
             store.add_step(tenant, run_id, n, "note", message={"role": "user", "content": nudge})
             messages.append({"role": "user", "content": nudge})
+        offered = [spec.terminal.schema()] if llm_calls >= budget else schemas
 
         # 3. Ask the model what to do next.
         try:
-            r = gw.chat(messages, tools=schemas, temperature=spec.temperature)
+            r = gw.chat(messages, tools=offered, temperature=spec.temperature)
         except AllProvidersExhausted as e:
             resume_at = int(e.resume_at) if e.resume_at else int(time.time()) + DEFAULT_PAUSE
             n += 1
