@@ -164,3 +164,12 @@ aside.right { border-left: 1px solid var(--line); padding: 0; display: flex; fle
   main { grid-template-columns: 1fr; grid-template-rows: auto 60vh auto; }
   aside.left, aside.right { border: none; }
 }
+
+.connect .row { margin-top: 6px; }
+.check { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+.job { font-size: 12px; margin-top: 8px; padding: 6px 8px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); }
+.job.done { color: var(--green); border-color: #1f5135; }
+.job.failed { color: #fca5a5; border-color: #5a1e24; }
+.job.running { color: var(--amber); }
+.source { color: var(--muted); margin: 10px 2px; line-height: 1.5; }
+.small-pre { font-size: 10px; white-space: pre-wrap; word-break: break-all; }

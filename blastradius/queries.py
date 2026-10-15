@@ -281,8 +281,14 @@ def criticality(tenant: str | None = None, limit: int = 10) -> list[dict]:
     return _run(tenant, CRITICALITY, {"limit": limit})
 
 
-def path_to_user(name: str, tenant: str | None = None, entry: str = USER_ENTRY) -> dict:
-    rows = _run(tenant, PATH_TO_USER, {"entry": entry, "name": name})
+def entry_point(tenant: str | None = None) -> str:
+    """Where users enter the system: set by a connector on the Meta node, else the demo's frontend-proxy."""
+    rows = _run(tenant, "MATCH (m:Meta {key: 'dataset'}) RETURN m.entry AS entry")
+    return (rows[0]["entry"] if rows else None) or USER_ENTRY
+
+
+def path_to_user(name: str, tenant: str | None = None, entry: str | None = None) -> dict:
+    rows = _run(tenant, PATH_TO_USER, {"entry": entry or entry_point(tenant), "name": name})
     return rows[0] if rows else {"path": [], "hops": None}
 
 

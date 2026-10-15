@@ -6,6 +6,7 @@ interface Props {
   topology: Topology | null;
   evidence: Evidence | null;
   selected: string | null;
+  root?: string | null;
   onSelect: (component: string | null) => void;
 }
 
@@ -68,7 +69,7 @@ const STYLE: any[] = [
   { selector: "node:selected", style: { "overlay-color": "#60a5fa", "overlay-opacity": 0.25, "overlay-padding": 6 } },
 ];
 
-export default function Graph({ topology, evidence, selected, onSelect }: Props) {
+export default function Graph({ topology, evidence, selected, root, onSelect }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const cy = useRef<Core | null>(null);
   const positions = useRef<Record<string, cytoscape.Position>>({});
@@ -85,7 +86,10 @@ export default function Graph({ topology, evidence, selected, onSelect }: Props)
     cy.current?.destroy();
     const c = cytoscape({
       container: host.current, elements: els, style: STYLE, wheelSensitivity: 0.25, minZoom: 0.3, maxZoom: 2.5,
-      layout: { name: "breadthfirst", directed: true, roots: ["load-generator"], spacingFactor: 1.05, padding: 30 },
+      layout: { name: "breadthfirst", directed: true, spacingFactor: 1.05, padding: 30,
+                // Layout from where traffic starts: a load generator if there is one, else the user entry point.
+                roots: topology.nodes.some((n) => n.id === "load-generator") ? ["load-generator"]
+                  : root && topology.nodes.some((n) => n.id === root) ? [root] : undefined },
     });
     c.nodes().forEach((n) => { positions.current[n.id()] = { ...n.position() }; });
     c.on("tap", "node", (ev) => {
@@ -96,7 +100,7 @@ export default function Graph({ topology, evidence, selected, onSelect }: Props)
     cy.current = c;
     return () => { c.destroy(); cy.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topology?.nodes.length, topology?.edges.length, topology?.nodes[0]?.id]);
+  }, [topology?.nodes.length, topology?.edges.length, topology?.nodes[0]?.id, root]);
 
   // Live alert rings when no incident is selected.
   useEffect(() => {

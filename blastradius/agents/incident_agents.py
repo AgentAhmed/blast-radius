@@ -141,6 +141,10 @@ def _after_investigation(tenant, run, result):
     if page_to and page_to[0]["on_call"]:
         actions.page(tenant, incident_id, page_to[0]["on_call"],
                      f"On call for {page_to[0]['team']}, owner of {result['root_cause']}")
+    elif experts := queries.experts(result["root_cause"], tenant, limit=1):
+        # No on-call schedule (e.g. a connected GitHub repo): page whoever changed it most.
+        actions.page(tenant, incident_id, experts[0]["person"],
+                     f"Top expert on {result['root_cause']} ({experts[0]['changes']} changes); no on-call schedule")
     evidence = "\n".join(f"- {e}" for e in result.get("evidence") or [])
     actions.github_issue(
         tenant, incident_id, f"[{incident_id}] Root cause: {result['root_cause']}",

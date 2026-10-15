@@ -4,8 +4,10 @@ The simulator mimics what monitoring would report when one of the OTel Demo's fa
 the failing component and the components that depend on it start alerting. The true cause is stored on a
 separate Scenario node that no agent tool ever reads, so it can be used to score the agents honestly.
 """
+import re
 import time
 import uuid
+from datetime import datetime
 
 from blastradius import db
 from blastradius.data import topology
@@ -93,13 +95,25 @@ LIMIT $limit
 """
 
 
+FAIL_PREFIX = "fail:"   # generic fault for any tenant: "fail:<component>"
+
+
+def fault_root(flag: str, tenant: str | None = None) -> str:
+    if flag in topology.FAULT_FLAGS:
+        return topology.FAULT_FLAGS[flag]
+    if flag.startswith(FAIL_PREFIX):
+        name = flag[len(FAIL_PREFIX):]
+        if db.rows(db.graph(tenant).ro_query("MATCH (c:Component {name: $n}) RETURN c.name AS n", {"n": name})):
+            return name
+    raise ValueError(f"Unknown fault '{flag}'. Use one of {', '.join(topology.FAULT_FLAGS)} "
+                     f"or '{FAIL_PREFIX}<component>'")
+
+
 def simulate_fault(flag: str, tenant: str | None = None, now: int | None = None) -> dict:
-    """Turn on a demo fault flag: create the alerts monitoring would fire. Returns the alerts."""
-    if flag not in topology.FAULT_FLAGS:
-        raise ValueError(f"Unknown fault flag '{flag}'. Known: {', '.join(topology.FAULT_FLAGS)}")
+    """Inject a fault (a demo flag or 'fail:<component>'): create the alerts monitoring would fire."""
+    root = fault_root(flag, tenant)
     g = db.graph(tenant)
     now = now or int(time.time())
-    root = topology.FAULT_FLAGS[flag]
     info = db.rows(g.query(AFFECTED, {"root": root}))[0]
 
     alerts = []
@@ -123,6 +137,85 @@ def simulate_fault(flag: str, tenant: str | None = None, now: int | None = None)
     g.query("CREATE (:Scenario {flag: $flag, root: $root, started_at: $now})",
             {"flag": flag, "root": root, "now": now})
     return {"flag": flag, "alerts": alerts}
+
+
+# --- Real alerts: Prometheus Alertmanager webhook or generic JSON ------------------------------
+
+COMPONENT_LABELS = ("component", "service", "service_name", "service.name", "app", "app_kubernetes_io_name",
+                    "app.kubernetes.io/name", "k8s_deployment_name", "deployment", "container", "job", "pod")
+
+RESOLVE_ALERTS = """
+UNWIND $rows AS r
+MATCH (a:Alert {status: 'firing', signal: r.signal})-[:FIRED_ON]->(:Component {name: r.component})
+SET a.status = 'resolved', a.resolved_at = $now
+RETURN count(a) AS n
+"""
+
+
+def match_component(value: str, names: list[str]) -> str | None:
+    """Map a label value to a component: exact, then without common affixes, then pod/replica-set names."""
+    v = value.strip().lower().split("/")[-1]
+    if v in names:
+        return v
+    for affix in ("-service", "service", "-svc", "-server", "-api", "-app"):
+        if v.endswith(affix) and v[: -len(affix)] in names:
+            return v[: -len(affix)]
+    prefixed = [n for n in names if v.startswith(n + "-")]          # cart-7d9f8-abcde -> cart
+    return max(prefixed, key=len) if prefixed else None
+
+
+def _signal(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name).lower()).strip("_") or "alert"
+
+
+def parse_alerts(payload, names: list[str]) -> tuple[list[dict], list[dict], list[str]]:
+    """Alertmanager or generic JSON -> (firing alerts, resolved alerts, unmatched label values)."""
+    items = payload if isinstance(payload, list) else payload.get("alerts", [payload])
+    firing, resolved, unmatched = [], [], []
+    for item in items:
+        labels = item.get("labels") or {}
+        annotations = item.get("annotations") or {}
+        raw = item.get("component") or next((labels[k] for k in COMPONENT_LABELS if labels.get(k)), None)
+        component = match_component(str(raw), names) if raw else None
+        if not component:
+            unmatched.append(str(raw or labels or item))
+            continue
+        alert = {
+            "component": component,
+            "signal": _signal(item.get("signal") or labels.get("alertname") or "alert"),
+            "severity": str(item.get("severity") or labels.get("severity") or "warning").lower(),
+            "value": item.get("value") or annotations.get("value") or annotations.get("summary"),
+            "fired_at": _ts(item.get("startsAt")) or int(time.time()),
+        }
+        (resolved if str(item.get("status", "firing")).lower() == "resolved" else firing).append(alert)
+    return firing, resolved, unmatched
+
+
+def _ts(value) -> int | None:
+    if not value or str(value).startswith("0001"):
+        return None
+    try:
+        return int(datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return None
+
+
+def ingest_alerts(payload, tenant: str | None = None) -> dict:
+    """Store real alerts from a webhook. Firing alerts are triaged by the worker like simulated ones."""
+    g = db.graph(tenant)
+    names = [r["n"] for r in db.rows(g.ro_query("MATCH (c:Component) RETURN c.name AS n"))]
+    firing, resolved, unmatched = parse_alerts(payload, names)
+    batch = uuid.uuid4().hex[:6]
+    for i, a in enumerate(firing):
+        a["id"] = f"AL-{a['fired_at']}-{batch}-{i}"
+        a["value"] = None if a["value"] is None else str(a["value"])[:200]
+    if firing:
+        g.query(CREATE_ALERTS, {"alerts": firing})
+    closed = 0
+    if resolved:
+        closed = db.rows(g.query(RESOLVE_ALERTS, {"rows": resolved, "now": int(time.time())}))[0]["n"]
+    return {"accepted": [{k: a[k] for k in ("id", "component", "signal", "severity")} for a in firing],
+            "resolved": closed, "unmatched": unmatched, "known_components": names if unmatched else None}
 
 
 def _alert(component, signal, severity, value, fired_at):

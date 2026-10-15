@@ -40,6 +40,14 @@ export interface IncidentDetail {
   actions: { id: string; kind: string; status: string; url: string | null; detail: string }[];
   runs: Run[]; evidence: Evidence;
 }
+export interface TenantInfo {
+  source: string; url: string | null; topology_from: string; entry: string | null; real_names: boolean;
+}
+export interface ConnectJob {
+  id: string; repo: string; status: "running" | "done" | "failed"; step: string; error: string | null;
+  result: { tenant: string; components: number; dependencies: number; people: number; pull_requests: number;
+            decisions: number; teams: number; topology_from: string; entry: string } | null;
+}
 export interface LlmStatus { provider: string; configured: boolean; ready: boolean; models: string[]; local: boolean }
 export interface QueryInfo { name: string; cypher: string }
 
@@ -57,7 +65,15 @@ export const api = {
   tenants: () => fetch("/api/tenants").then((r) => r.json() as Promise<string[]>),
   llm: () => fetch("/api/llm/status").then((r) => r.json() as Promise<LlmStatus[]>),
   queries: () => fetch("/api/queries").then((r) => r.json() as Promise<Record<string, QueryInfo>>),
-  faults: () => fetch("/api/faults").then((r) => r.json() as Promise<{ flag: string; component: string }[]>),
+  faults: (t: string) => req<{ flag: string; component: string }[]>("/faults", t),
+  tenantInfo: (t: string) => req<TenantInfo>("/tenant", t),
+  connect: (repo: string, real_names: boolean) =>
+    fetch("/api/connect/github", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo, real_names }) }).then(async (r) => {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+      return r.json() as Promise<ConnectJob>;
+    }),
+  job: (id: string) => fetch(`/api/connect/jobs/${id}`).then((r) => r.json() as Promise<ConnectJob>),
   stats: (t: string) => req<Record<string, number>>("/stats", t),
   topology: (t: string) => req<Topology>("/topology", t),
   incidents: (t: string) => req<IncidentRow[]>("/incidents", t),

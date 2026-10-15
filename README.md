@@ -147,8 +147,25 @@ To work on the UI with hot reload, run `cd ui && npm run dev` and open http://lo
 python -m blastradius.cli root-cause payment checkout frontend frontend-proxy   # graph tools from the terminal
 python -m blastradius.agents.worker                                            # standalone worker(s)
 python -m blastradius.mcp_server                                               # MCP server (stdio)
-pytest                                                                          # 38 tests (FalkorDB must be running)
+pytest                                                                          # 48 tests (FalkorDB must be running)
 ```
+
+## Run it on real data
+The demo company is synthetic, but the system isn't tied to it. **Connectors** build a tenant graph from real
+sources, and every agent and view works on it unchanged ([docs/CONNECTORS.md](docs/CONNECTORS.md)):
+
+- **Connect any public GitHub repo** (console or `python -m blastradius.connectors.github owner/repo`):
+  - services and dependencies from its compose files (or a `blastradius.yaml` catalog)
+  - owners from `CODEOWNERS`
+  - experts and recent changes from real merged PRs
+  - design decisions from ADR files
+  - people get stable pseudonyms by default
+- **Send real alerts** to `POST /api/alerts?tenant=...` in **Prometheus Alertmanager** format, or simple JSON.
+  Labels like `service`, `app` or a pod name are mapped to components, and the agents investigate as usual.
+
+Tested on `open-telemetry/opentelemetry-demo`:
+- **Topology:** 26 components and 43 dependencies, read automatically from its 4 compose files.
+- **Alerts:** an Alertmanager alert sent to the webhook was traced to the right root cause.
 
 ## LLM providers: free tiers first, paid next, local last
 Agents call LLMs through a provider-neutral gateway ([blastradius/llm/](blastradius/llm/)). Slots are tried in

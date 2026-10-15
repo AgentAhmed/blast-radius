@@ -5,10 +5,11 @@
 import logging
 import os
 import threading
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -143,8 +144,71 @@ def query_catalog():
 # --- Incidents ------------------------------------------------------------------------------
 
 @app.get("/api/faults")
-def faults():
-    return [{"flag": f, "component": c} for f, c in topology.FAULT_FLAGS.items()]
+def faults(tenant: str | None = None):
+    """Demo fault flags where they apply, plus a generic 'fail:<component>' for every component."""
+    t = _tenant(tenant)
+    names = queries.component_names(t)
+    flags = [{"flag": f, "component": c} for f, c in topology.FAULT_FLAGS.items() if c in names]
+    return flags + [{"flag": f"{incidents.FAIL_PREFIX}{n}", "component": n} for n in names]
+
+
+@app.get("/api/tenant")
+def tenant_info(tenant: str | None = None):
+    rows = db.rows(db.graph(_tenant(tenant)).ro_query(
+        "MATCH (m:Meta {key: 'dataset'}) RETURN m.source AS source, m.url AS url, m.topology_from AS topology_from, "
+        "m.entry AS entry, m.real_names AS real_names"))
+    return (rows[0] if rows and rows[0]["source"] else {"source": "demo", "url": None, "topology_from": "demo",
+                                                         "entry": queries.entry_point(tenant), "real_names": False})
+
+
+# --- Connectors -------------------------------------------------------------------------------
+
+@app.post("/api/alerts")
+def receive_alerts(payload: dict | list = Body(...), tenant: str | None = None):
+    """Alert webhook: Prometheus Alertmanager format or generic {component, signal, severity, value}."""
+    out = incidents.ingest_alerts(payload, _tenant(tenant))
+    if out["unmatched"] and not out["accepted"]:
+        raise HTTPException(422, out)
+    return out
+
+
+class ConnectBody(BaseModel):
+    repo: str
+    max_prs: int | None = None
+    real_names: bool = False
+
+
+_jobs: dict[str, dict] = {}
+
+
+@app.post("/api/connect/github")
+def connect_github(body: ConnectBody):
+    from blastradius.connectors import github
+    try:
+        owner, name = github.parse_repo(body.repo)
+    except github.ConnectorError as e:
+        raise HTTPException(400, str(e))
+    job_id = uuid.uuid4().hex[:8]
+    job = _jobs[job_id] = {"id": job_id, "repo": f"{owner}/{name}", "status": "running", "step": "Starting",
+                           "result": None, "error": None}
+
+    def run():
+        try:
+            job["result"] = github.connect(body.repo, min(body.max_prs or 0, 300) or None, body.real_names,
+                                           progress=lambda m: job.update(step=m))
+            job.update(status="done", step="Done")
+        except Exception as e:   # surface any failure to the UI
+            job.update(status="failed", error=str(e))
+
+    threading.Thread(target=run, name=f"connect-{job_id}", daemon=True).start()
+    return job
+
+
+@app.get("/api/connect/jobs/{job_id}")
+def connect_job(job_id: str):
+    if job_id not in _jobs:
+        raise HTTPException(404, "Unknown job")
+    return _jobs[job_id]
 
 
 class SimulateBody(BaseModel):

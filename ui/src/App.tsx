@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ago } from "./api";
-import type { IncidentDetail, IncidentRow, LlmStatus, QueryInfo, Topology } from "./api";
+import type { IncidentDetail, IncidentRow, LlmStatus, QueryInfo, TenantInfo, Topology } from "./api";
 import Graph from "./Graph";
 import IncidentPanel from "./IncidentPanel";
 import AskPanel from "./AskPanel";
 import ComponentDrawer from "./ComponentDrawer";
+import ConnectPanel from "./ConnectPanel";
 
 function usePoll(fn: () => void, ms: number, deps: unknown[]) {
   useEffect(() => {
@@ -33,10 +34,10 @@ export default function App() {
   const [component, setComponent] = useState<string | null>(null);
   const [simulating, setSimulating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<TenantInfo | null>(null);
 
   useEffect(() => {
     api.tenants().then(setTenants);
-    api.faults().then(setFaults);
     api.queries().then(setQueries);
   }, []);
   usePoll(() => { api.llm().then(setLlm).catch(() => {}); }, 15000, []);
@@ -47,6 +48,11 @@ export default function App() {
     setTab(params.get("tab") === "ask" ? "ask" : "incident");
     api.topology(tenant).then(setTopology).catch((e) => setError(String(e)));
     api.stats(tenant).then(setStats).catch(() => {});
+    api.tenantInfo(tenant).then(setInfo).catch(() => setInfo(null));
+    api.faults(tenant).then((f) => {
+      setFaults(f);
+      setFault((cur) => (f.some((x) => x.flag === cur) ? cur : f[0]?.flag ?? ""));
+    }).catch(() => {});
   }, [tenant]);
 
   usePoll(() => {
@@ -110,7 +116,8 @@ export default function App() {
         <aside className="left">
           <section className="card inject">
             <h4>Inject a fault</h4>
-            <p className="muted small">Turns on an OpenTelemetry Demo failure flag; monitoring fires alerts and the agents take over.</p>
+            <p className="muted small">Fails a component: alerts fire on it and on what depends on it, and the agents take over.
+              {" "}<span className="muted">(Real alerts: see the webhook below.)</span></p>
             <div className="row">
               <select value={fault} onChange={(e) => setFault(e.target.value)}>
                 {faults.map((f) => <option key={f.flag} value={f.flag}>{f.flag}</option>)}
@@ -119,15 +126,24 @@ export default function App() {
             </div>
           </section>
           {error && <div className="error-box">{error}</div>}
+          {info && (
+            <div className="source small">
+              {info.url ? <>Source: <a href={info.url} target="_blank" rel="noreferrer">{info.source}</a>
+                {" "}· topology from {info.topology_from} · users enter at <b>{info.entry}</b>
+                {!info.real_names && " · pseudonymized people"}</>
+                : <>Source: demo company on the OpenTelemetry Demo topology (synthetic people and history)</>}
+            </div>
+          )}
           <h4 className="list-title">Open incidents</h4>
           {open.length === 0 && <p className="muted small">None. Inject a fault to start.</p>}
           {open.map((i) => <IncidentItem key={i.id} i={i} active={i.id === selectedId} onClick={() => { setSelectedId(i.id); setTab("incident"); }} />)}
           <h4 className="list-title">Incident memory</h4>
           {past.map((i) => <IncidentItem key={i.id} i={i} active={i.id === selectedId} onClick={() => { setSelectedId(i.id); setTab("incident"); }} />)}
+          <ConnectPanel tenant={tenant} onConnected={(t) => { api.tenants().then(setTenants); setTenant(t); }} />
         </aside>
 
         <section className="center">
-          <Graph topology={topology} evidence={selectedId && detail?.incident.id === selectedId ? detail.evidence : null}
+          <Graph key={tenant} topology={topology} root={info?.entry ?? null} evidence={selectedId && detail?.incident.id === selectedId ? detail.evidence : null}
                  selected={component} onSelect={setComponent} />
           {component && <ComponentDrawer tenant={tenant} name={component} onClose={() => setComponent(null)} />}
         </section>
