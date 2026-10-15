@@ -1,106 +1,141 @@
-﻿# Blast Radius
+# Blast Radius
 
-**AI on-call agents that run on a graph.** Blast Radius traces *why* production broke, *what* it affects and
-*who* should fix it. It remembers every incident and shows the exact graph path behind each answer.
-FalkorDB is the agents' shared brain: system topology, ownership, change history, incident memory and
-agent checkpoints all live in it.
+**AI on-call agents that run on a graph.** When production breaks, Blast Radius finds *why*, works out *what* is
+affected and *who* should fix it, and pages them. It remembers every incident, so the next one is faster, and it shows
+the exact graph path behind each answer.
 
-Built for **Graph Hacks 2026** (WeMakeDevs Ã— FalkorDB).
-**Tracks entered:** Agents That Act on Connected Data Â· Agent Memory and Coordination Â· Company Brain
+FalkorDB is the agents' shared brain. It holds the system topology, ownership, change history, incident memory,
+agent checkpoints and the evidence trail.
 
-> Status: in progress during the hackathon (Oct 15â€“18, 2026).
+Built for **Graph Hacks 2026** (WeMakeDevs × FalkorDB).
 
-## Why a graph
-Incident questions are relationship questions:
-- *What breaks if `payment` goes down?* â†’ everything that transitively depends on it
-- *Ten services are alerting â€” which one is the cause?* â†’ the dependency they all share
-- *What changed near the failure?* â†’ changes in the service **and its dependencies**
-- *Who do I page?* â†’ owner team â†’ who is on call right now
+**Tracks entered:** ① Agents That Act on Connected Data · ② Agent Memory and Coordination · ③ Company Brain
 
-Each is one traversal in FalkorDB. Remove FalkorDB and the agents have no topology, no memory and no evidence.
+![Blast Radius console: a payment failure traced through the dependency graph](docs/images/console.png)
+
+## The problem
+Eight services are alerting. Only one of them is the cause. Which one is it? What changed? Who do you wake up?
+Has this happened before?
+
+Each of those is a **relationship question**. The answers sit across tracing, Git, on-call schedules, runbooks and
+postmortems. LLM agents that see only fragments guess, forget past incidents, and can't explain their reasoning.
+
+## What it does
+| | Track | What happens |
+|---|---|---|
+| 🕵️ | **1 · Acts on connected data** | An alert fires and the **investigator agent** walks the dependency graph to rank root causes. It finds recent changes near the failure, uses **PageRank** and **shortest path** as tools, then **pages the on-call owner** and opens a **GitHub issue** with the evidence. The same tools are available over **MCP**. |
+| 🤖 | **2 · Memory and coordination** | **Triage → investigator → scribe** hand work to each other through `Task` nodes, claimed atomically. On resolution, the scribe writes a postmortem, a lesson and embeddings, so the **same fault next time is recalled with its fix**. Every agent step is a `Step` node, so runs **pause on LLM rate limits and resume** after crashes. Each org has **its own graph**. |
+| 🧠 | **3 · Company brain** | Ask *"who should I page for payment and who knows it best?"*, *"why does checkout use Kafka?"* or *"which services only one person understands?"*. Answers come from owners, on-call, change history, ADRs and postmortems, **with sources**. |
+
+## Why a graph, and why FalkorDB
+- **Root cause** is the dependency that all alerting components share, which is a multi-hop traversal.
+- **Blast radius** is everything that transitively depends on X: a variable-length path, walked backwards.
+- **What changed near the failure** means PRs in X *and its dependencies*, filtered by time.
+- **Memory** links incidents to the exact components, fixes and lessons involved. Recall combines vector similarity
+  with graph structure.
+- **Explainability:** every tool call records which nodes it `TOUCHED`, and each finding is `SUPPORTED_BY` the
+  entities it cites. The UI draws that subgraph.
+- FalkorDB is fast enough to query on every agent step. It has built-in **PageRank, shortest paths and label
+  propagation**, **vector and full-text indexes**, and **one graph per tenant** in a single instance.
+
+**Remove FalkorDB and nothing works:** there is no topology, no memory, no checkpoints, no handoffs and no
+evidence.
+
+## Architecture
+```mermaid
+flowchart LR
+  SIM[Fault simulator<br/>OTel Demo flags] --> AL[(Alert nodes)]
+  subgraph Agents
+    TR[Triage<br/>deterministic] --> |Task: investigate| INV[Investigator<br/>LLM + graph tools]
+    HUM[Human resolves] --> |Task: record| SCR[Scribe<br/>LLM]
+  end
+  AL --> TR
+  INV --> |Finding, PAGED, issue| FDB
+  SCR --> |Postmortem, Lesson,<br/>embeddings, SIMILAR_TO| FDB
+  BRAIN[Company brain<br/>Q&A agent] --> FDB
+  INV & SCR & BRAIN --> GW[LLM gateway<br/>Groq → Gemini → OpenRouter → custom → Ollama]
+  FDB[(FalkorDB<br/>graph per tenant)]
+  MCP[MCP server] --> FDB
+  UI[Web console] --> API[FastAPI + worker] --> FDB
+```
+More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/AGENTS.md](docs/AGENTS.md)
 
 ## Graph data model
-One graph per tenant (`org_<tenant>`) in a single FalkorDB instance.
+One graph per tenant (`org_astroshop`, `org_nebula`) in one FalkorDB instance. Full model:
+[docs/GRAPH_MODEL.md](docs/GRAPH_MODEL.md).
 
 ```mermaid
 graph LR
-  Person -- MEMBER_OF --> Team
   Team -- OWNS --> Component
+  Person -- MEMBER_OF --> Team
   Person -- "ON_CALL_FOR {from,to}" --> Team
-  Person -- AUTHORED --> PullRequest
-  PullRequest -- MODIFIES --> Component
+  Person -- AUTHORED --> PullRequest -- MODIFIES --> Component
   Release -- DEPLOYS --> Component
-  Release -- INCLUDES --> PullRequest
-  Component -- "CALLS {protocol}" --> Component
-  Component -- READS_WRITES --> Component
-  Component -- PUBLISHES --> Component
-  Component -- CONSUMES --> Component
+  Component -- "CALLS / READS_WRITES / PUBLISHES / CONSUMES" --> Component
+  Component -- "DEPENDS_ON (derived)" --> Component
   Component -- SERVES --> UserFlow
-  Incident -- ROOT_CAUSE --> Component
-  Incident -- IMPACTED --> Component
+  Alert -- FIRED_ON --> Component
+  Incident -- TRIGGERED_BY --> Alert
+  Incident -- ROOT_CAUSE / IMPACTED --> Component
   Incident -- RESOLVED_BY --> Action
-  Incident -- HANDLED_BY --> Person
-  Document -- POSTMORTEM_OF --> Incident
-  Document -- ABOUT --> Component
-  Decision -- RECORDED_IN --> Document
-  Person -- MADE --> Decision
+  Incident -- SIMILAR_TO --> Incident
+  Incident -- HAS_FINDING --> Finding -- SUPPORTED_BY --> Component
+  Lesson -- APPLIES_TO --> Component
   Decision -- AFFECTS --> Component
-  Runbook -- FOR --> Component
+  Decision -- RECORDED_IN --> Document
+  AgentRun -- HAS_STEP --> Step -- NEXT --> Step
+  Step -- TOUCHED --> Component
+  Task -- FOR --> Incident
 ```
 
-| Node | Key properties | Notes |
-|---|---|---|
-| `Component` (+ `Service` / `Datastore` / `Topic`) | name, tier, language/kind | Shared label lets one traversal cross services, databases and Kafka topics |
-| `UserFlow` | name | Business view: browse, cart, checkout, order-processing |
-| `Team`, `Person` | name; handle, role | Ownership and people (fictional) |
-| `PullRequest`, `Release` | number, title, merged_at; version, deployed_at | Change history |
-| `Incident`, `Action` | id, severity, opened_at, resolved_at, summary; kind, detail | Episodic and procedural memory |
-| `Document`, `Decision`, `Runbook` | kind (postmortem/adr), body; rationale; steps | Company knowledge with sources |
+The Cypher queries and graph algorithms the product depends on: **[QUERIES.md](QUERIES.md)**.
 
-**Edge direction:** dependency edges point from the dependent to its dependency
-(`checkout -CALLS-> payment`). Walk forward for root cause, backward for blast radius.
-**Time:** epoch seconds on nodes and edges (`merged_at`, `deployed_at`, `ON_CALL_FOR.from/to`).
-
-The queries the product depends on are in [QUERIES.md](QUERIES.md).
-
-## Data
-- **System topology:** the [OpenTelemetry Demo](https://github.com/open-telemetry/opentelemetry-demo)
-  (Astronomy Shop, Apache-2.0): 18 services, Valkey, PostgreSQL and a Kafka topic.
-- **Company data:** synthetic and fictional (teams, people, PRs, releases, on-call, incidents, ADRs, runbooks),
-  generated deterministically by [blastradius/data/synthetic.py](blastradius/data/synthetic.py).
-
-## Local setup
-Requirements: Docker, Python 3.12, [uv](https://docs.astral.sh/uv/).
+## Quick start (local)
+Requirements: Docker, Python 3.12, [uv](https://docs.astral.sh/uv/), Node 20+. You need **one** of:
+a free [Groq key](https://console.groq.com/keys), or [Ollama](https://ollama.com/download) with `ollama pull qwen3:8b`.
 
 ```bash
-# 1. Start FalkorDB (Browser UI at http://localhost:3006)
-docker compose up -d
+git clone https://github.com/AgentAhmed/blast-radius && cd blast-radius
+cp .env.example .env                      # add GROQ_API_KEY (or leave empty and run Ollama)
+docker compose up -d                      # FalkorDB; Browser UI at http://localhost:3006
 
-# 2. Create the virtual environment and install dependencies
 uv venv blastradius-venv --python 3.12 --prompt blast-radius
 # Windows: blastradius-venv\Scripts\activate    macOS/Linux: source blastradius-venv/bin/activate
 uv sync --active
 
-# 3. Configure
-cp .env.example .env
+python -m blastradius.ingest --tenant astroshop --reset      # demo org (first run downloads a 130 MB embedding model)
+python -m blastradius.ingest --tenant nebula --seed 7 --reset
+python -m blastradius.llm status                             # which LLM providers are ready
 
-# 4. Load the demo tenant graph
-python -m blastradius.ingest --tenant astroshop --reset
+cd ui && npm install && npm run build && cd ..
+uvicorn blastradius.api:app --port 8007                      # console at http://localhost:8007
+```
+To work on the UI with hot reload, run `cd ui && npm run dev` and open http://localhost:3007.
 
-# 5. Try the tools
-python -m blastradius.cli blast payment
-python -m blastradius.cli root-cause payment checkout frontend frontend-proxy
-python -m blastradius.cli changes checkout --hours 24
-python -m blastradius.cli page payment
-python -m blastradius.cli experts payment
+**Or run everything in Docker:** `docker compose --profile app up -d --build`, then open http://localhost:8007.
 
-# 6. Tests (need FalkorDB running)
-pytest
+### Try it
+1. **Inject `paymentFailure`.** Four services alert. The investigator traces them to `payment` and the v3 SDK change
+   merged 2 hours ago, then pages the on-call owner.
+2. **Resolve it** with the fix, for example *"Rolled back payment 1.4.0"*. The scribe writes a postmortem and a lesson
+   into the graph.
+3. **Inject `paymentFailure` again.** The investigator recalls the incident you just resolved and recommends the same fix.
+4. **Inject `kafkaQueueProblems`.** The root cause is the `orders` topic, which never alerts itself.
+5. **Ask the company brain** *"Why does checkout publish orders to Kafka, and who decided that?"*
+6. **Switch tenant** to `nebula`. It has separate memory and none of astroshop's incidents.
+7. **Click any node** to see its owner, on-call person, experts, decisions and memory.
+
+### Other entry points
+```bash
+python -m blastradius.cli root-cause payment checkout frontend frontend-proxy   # graph tools from the terminal
+python -m blastradius.agents.worker                                            # standalone worker(s)
+python -m blastradius.mcp_server                                               # MCP server (stdio)
+pytest                                                                          # 31 tests (FalkorDB must be running)
 ```
 
-## LLM providers (free tiers first, local last)
-The agents call LLMs through a small gateway ([blastradius/llm/gateway.py](blastradius/llm/gateway.py)).
-Every slot speaks the OpenAI chat API, and slots are tried in order:
+## LLM providers: free tiers first, local last
+Agents call LLMs through a small gateway ([blastradius/llm/gateway.py](blastradius/llm/gateway.py)). Every slot
+speaks the OpenAI chat API, and slots are tried in order:
 
 | # | Slot | Needs | Default models |
 |---|---|---|---|
@@ -108,21 +143,47 @@ Every slot speaks the OpenAI chat API, and slots are tried in order:
 | 2 | Gemini | `GEMINI_API_KEY` (free) | gemini-2.5-flash |
 | 3 | OpenRouter | `OPENROUTER_API_KEY` | free models |
 | 4 | Custom | any OpenAI-compatible URL + key | your choice |
-| 5 | Ollama | nothing; runs locally | qwen3:8b |
+| 5 | Ollama | nothing, runs locally | qwen3:8b |
 
-- **Empty key:** the slot is skipped, so you only need **one** key, or none at all if Ollama is running.
-- **Rate limits:** a rate-limited model cools down for the provider's `retry-after` time.
+- **Empty key:** the slot is skipped.
+- **Rate limits:** a rate-limited model cools down for the `retry-after` time and the next model is tried.
 - **Outages:** a provider that is down is skipped briefly.
-- **Bad keys:** a provider with an invalid key is disabled for the run.
-- **Own budget:** each provider has a requests-per-minute budget so we stay under free-tier limits.
-- **Everything exhausted:** the gateway reports when to retry, so agent runs can pause and resume (see agent checkpoints).
+- **Bad keys:** a provider with a bad key is disabled.
+- **Own budget:** a per-provider requests-per-minute budget keeps us under free-tier limits.
+- **Everything exhausted:** the agent run **pauses** with a resume time and continues later from its checkpoint.
 
-```bash
-python -m blastradius.llm status   # which slots are ready
-python -m blastradius.llm ping     # one tiny call through the chain
+The graph does the heavy lifting with fixed, tested Cypher tools. The LLM only chooses the next tool and writes the
+conclusion, so a typical investigation takes **4–7 LLM calls**.
+
+## Project layout
 ```
+blastradius/
+  data/topology.py, data/synthetic.py   public OTel Demo topology + fictional company data
+  ingest.py, schema.py, memory.py       load graph, indexes, derived edges, PageRank, embeddings
+  queries.py                            all Cypher (see QUERIES.md)
+  incidents.py                          alerts, incidents, fault simulator
+  agents/runtime.py, agents/store.py    agent loop + checkpoints/tasks in FalkorDB
+  agents/tools.py                       graph tools exposed to the LLM
+  agents/incident_agents.py             triage, investigator, scribe, company brain
+  agents/worker.py                      claims tasks, resumes paused runs
+  llm/                                  provider fallback gateway
+  actions.py                            page owner, GitHub issue (idempotent)
+  api.py, mcp_server.py, cli.py         HTTP API + worker, MCP server, CLI
+ui/                                     React + Cytoscape console
+docs/                                   architecture, graph model, agents, guides
+```
+
+## Data
+- **Topology:** the [OpenTelemetry Demo](https://github.com/open-telemetry/opentelemetry-demo) (Astronomy Shop,
+  Apache-2.0): 18 services, Valkey, PostgreSQL and a Kafka topic, plus its built-in failure flags.
+- **Company data:** synthetic and fictional, covering teams, people, PRs, releases, on-call, incidents, ADRs and
+  runbooks. It is generated deterministically by [blastradius/data/synthetic.py](blastradius/data/synthetic.py).
+  No real people or private data.
 
 ## AI usage disclosure
 This project was built with help from an AI coding assistant (Claude Code), used for scaffolding,
 boilerplate, test writing and debugging. The graph model, the queries and the design decisions were reviewed,
 verified and are understood by the author. Details are kept up to date in this section.
+
+## License
+MIT

@@ -1,4 +1,4 @@
-﻿"""Fallback logic of the LLM gateway, with fake providers (no network, no keys)."""
+"""Fallback logic of the LLM gateway, with fake providers (no network, no keys)."""
 from types import SimpleNamespace
 
 import openai

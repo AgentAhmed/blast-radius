@@ -28,8 +28,16 @@ def tenants() -> list[str]:
     return sorted(n.removeprefix("org_") for n in names if n.startswith("org_") and not n.startswith("org_test"))
 
 
+DEMO_TENANTS = {"astroshop": 42, "nebula": 7}   # tenant -> data seed
+
+
 @asynccontextmanager
 async def lifespan(_app):
+    if os.getenv("SEED_ON_START") == "1" and not tenants():
+        from blastradius.ingest import ingest
+        for name, seed in DEMO_TENANTS.items():
+            log.warning("seeding demo tenant %s", name)
+            ingest(name, reset=True, seed=seed)
     stop = threading.Event()
     if os.getenv("RUN_WORKER", "1") == "1":
         def loop():

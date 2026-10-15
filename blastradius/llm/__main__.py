@@ -1,4 +1,4 @@
-﻿"""Check the LLM fallback chain.
+"""Check the LLM fallback chain.
 
     python -m blastradius.llm status     # which slots are configured, is Ollama running
     python -m blastradius.llm ping       # send one tiny prompt through the chain

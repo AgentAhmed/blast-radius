@@ -17,3 +17,6 @@ Thumbs.db
 # Node (UI, later)
 node_modules/
 dist/
+
+# Private notes (not published)
+notes/

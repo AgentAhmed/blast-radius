@@ -9,5 +9,21 @@ services:
       - falkordb-data:/var/lib/falkordb/data
     restart: unless-stopped
 
+  # Full app (UI + API + worker). Start with: docker compose --profile app up -d --build
+  app:
+    profiles: ["app"]
+    build: .
+    container_name: blastradius-app
+    depends_on: [falkordb]
+    env_file: .env
+    environment:
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: "6379"
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      SEED_ON_START: "1"
+    ports:
+      - "8007:8007"   # web UI + API -> http://localhost:8007
+    restart: unless-stopped
+
 volumes:
   falkordb-data:

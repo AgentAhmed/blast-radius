@@ -1,4 +1,4 @@
-﻿"""Derived graph facts and long-term memory writes.
+"""Derived graph facts and long-term memory writes.
 
 - DEPENDS_ON: one edge type summarising CALLS / READS_WRITES / PUBLISHES / CONSUMES, so graph
   algorithms (PageRank, shortest path, communities) can run over all dependencies at once.

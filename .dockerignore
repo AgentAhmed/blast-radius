@@ -1,0 +1,9 @@
+blastradius-venv
+.venv
+.git
+.env
+**/__pycache__
+.pytest_cache
+ui/node_modules
+ui/dist
+tests

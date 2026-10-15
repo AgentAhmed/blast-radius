@@ -1,4 +1,4 @@
-﻿"""Core graph queries. These are the agent's tools; every answer it gives is built from them.
+"""Core graph queries. These are the agent's tools; every answer it gives is built from them.
 
 Conventions
 - Dependency edges point from the dependent to its dependency:
@@ -15,7 +15,7 @@ from blastradius import db
 DEP = "CALLS|READS_WRITES|PUBLISHES|CONSUMES"
 MAX_HOPS = 6
 
-# Q1 â€” What breaks if X goes down?
+# Q1 — What breaks if X goes down?
 BLAST_RADIUS = f"""
 MATCH (target:Component {{name: $name}})
 MATCH p = (dep:Component)-[:{DEP}*1..{MAX_HOPS}]->(target)
@@ -26,7 +26,7 @@ RETURN dep.name AS component, dep.tier AS tier, hops,
 ORDER BY hops, component
 """
 
-# Q1b â€” User flows hit if X goes down (X's own flows + flows of everything that depends on it)
+# Q1b — User flows hit if X goes down (X's own flows + flows of everything that depends on it)
 FLOWS_AT_RISK = f"""
 MATCH (target:Component {{name: $name}})
 OPTIONAL MATCH (dep:Component)-[:{DEP}*1..{MAX_HOPS}]->(target)
@@ -37,7 +37,7 @@ RETURN f.name AS flow, collect(DISTINCT c.name) AS via
 ORDER BY flow
 """
 
-# Q2 â€” Which component is the most likely root cause of a set of alerting components?
+# Q2 — Which component is the most likely root cause of a set of alerting components?
 # A candidate must be a (transitive) dependency of the alerting components, or one of them.
 # Ranking: covers the most alerting components -> is itself alerting -> has no alerting
 # dependencies of its own (otherwise it is probably a victim too) -> changed recently.
@@ -57,7 +57,7 @@ ORDER BY covers DESC, is_alerting DESC, alerting_deps ASC, recent_changes DESC, 
 LIMIT $limit
 """
 
-# Q3 â€” What changed recently in X or anything X depends on (within N hops)?
+# Q3 — What changed recently in X or anything X depends on (within N hops)?
 RECENT_CHANGES = f"""
 MATCH p = (x:Component {{name: $name}})-[:{DEP}*0..2]->(c:Component)
 WITH c, min(length(p)) AS hops
@@ -70,7 +70,7 @@ RETURN c.name AS component, hops, pr.number AS pr, pr.title AS title,
 ORDER BY merged_at DESC
 """
 
-# Q4 â€” Who do I page for X right now?
+# Q4 — Who do I page for X right now?
 WHO_TO_PAGE = """
 MATCH (c:Component {name: $name})<-[:OWNS]-(t:Team)
 OPTIONAL MATCH (t)<-[oc:ON_CALL_FOR]-(p:Person)
@@ -80,7 +80,7 @@ RETURN t.name AS team, p.handle AS on_call, p.name AS on_call_name,
        oc.to AS on_call_until, lead.handle AS team_lead
 """
 
-# Q5 â€” Who actually knows X? People ranked by changes to X, recent work counting double.
+# Q5 — Who actually knows X? People ranked by changes to X, recent work counting double.
 EXPERTS = """
 MATCH (c:Component {name: $name})<-[:MODIFIES]-(pr:PullRequest)<-[:AUTHORED]-(p:Person)
 OPTIONAL MATCH (p)-[:MEMBER_OF]->(t:Team)
@@ -92,7 +92,7 @@ ORDER BY score DESC, last_change DESC
 LIMIT $limit
 """
 
-# Q6 â€” Have we seen this before? Vector similarity of the incident text, boosted by graph structure:
+# Q6 — Have we seen this before? Vector similarity of the incident text, boosted by graph structure:
 # same root-cause component and overlap with the components involved now.
 SIMILAR_INCIDENTS = """
 CALL db.idx.vector.queryNodes('Incident', 'embedding', $k, vecf32($vec)) YIELD node, score
@@ -114,7 +114,7 @@ ORDER BY score DESC
 LIMIT $limit
 """
 
-# Q7 â€” What fixed problems in X before? Past incident fixes + runbooks + lessons learned.
+# Q7 — What fixed problems in X before? Past incident fixes + runbooks + lessons learned.
 PAST_FIXES = """
 MATCH (c:Component {name: $name})
 OPTIONAL MATCH (rb:Runbook)-[:FOR]->(c)
@@ -127,7 +127,7 @@ RETURN runbooks, lessons,
        collect(DISTINCT {incident: i.id, title: i.title, kind: a.kind, fix: a.detail}) AS past_fixes
 """
 
-# Q8 â€” Which components are most critical? PageRank over DEPENDS_ON: rank flows from dependents to
+# Q8 — Which components are most critical? PageRank over DEPENDS_ON: rank flows from dependents to
 # their dependencies, so things many paths rely on score highest.
 CRITICALITY = """
 CALL algo.pageRank('Component', 'DEPENDS_ON') YIELD node, score
@@ -136,7 +136,7 @@ ORDER BY pagerank DESC
 LIMIT $limit
 """
 
-# Q9 â€” How does a failure in X reach users? Shortest dependency path from the user entry point.
+# Q9 — How does a failure in X reach users? Shortest dependency path from the user entry point.
 PATH_TO_USER = """
 MATCH (src:Component {name: $entry}), (dst:Component {name: $name})
 CALL algo.SPpaths({sourceNode: src, targetNode: dst, relTypes: ['DEPENDS_ON'], maxLen: 8, pathCount: 3})
@@ -146,7 +146,7 @@ ORDER BY hops
 LIMIT 1
 """
 
-# Q10 â€” Why is X built this way? Design decisions affecting X, who made them, and the source document.
+# Q10 — Why is X built this way? Design decisions affecting X, who made them, and the source document.
 DECISIONS_FOR = """
 MATCH (c:Component {name: $name})<-[:AFFECTS]-(d:Decision)
 OPTIONAL MATCH (p:Person)-[:MADE]->(d)
