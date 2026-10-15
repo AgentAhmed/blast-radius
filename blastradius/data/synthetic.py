@@ -36,6 +36,9 @@ PEOPLE = [
     ("yuki.t", "Yuki Tanaka", "Platform", "engineer"),
 ]
 
+# Components only one person has ever changed (bus factor = 1)
+SOLE_MAINTAINER = {"quote": "diego.r"}
+
 PR_TEMPLATES = [
     "Bump dependencies for {s}",
     "Add tracing attributes to {s}",
@@ -78,6 +81,8 @@ def generate(now: int, seed: int = 42) -> dict:
             number += 1
             outsider = rng.random() < 0.2
             pool = [p[0] for p in PEOPLE] if outsider else members[team]
+            if comp in SOLE_MAINTAINER:   # planted knowledge risk for the bus-factor demo
+                pool = [SOLE_MAINTAINER[comp]]
             merged = now - rng.randint(2 * DAY, 60 * DAY)
             prs.append({
                 "number": number, "title": rng.choice(PR_TEMPLATES).format(s=comp),

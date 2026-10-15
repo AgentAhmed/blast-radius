@@ -6,7 +6,7 @@ Usage:
 import argparse
 import time
 
-from blastradius import db, schema
+from blastradius import db, memory, schema
 from blastradius.data import synthetic, topology
 
 
@@ -128,6 +128,10 @@ def ingest(tenant: str, reset: bool = False, now: int | None = None, seed: int =
     schema.create_indexes(g)
     load_topology(g)
     load_org(g, synthetic.generate(now, seed))
+    memory.derive(g)
+    memory.embed_missing(g)
+    for row in db.rows(g.query("MATCH (i:Incident) RETURN i.id AS id")):
+        memory.link_similar(g, row["id"])
     g.query("MERGE (m:Meta {key: 'dataset'}) SET m.generated_at = $now, m.seed = $seed",
             {"now": now, "seed": seed})
     counts = db.rows(g.query("MATCH (n) RETURN labels(n)[0] AS label, count(*) AS n ORDER BY label"))
