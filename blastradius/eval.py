@@ -1,0 +1,179 @@
+"""Evaluate the investigator against every fault flag, with the real LLM.
+
+For each fault flag:
+  1. cold run   - fresh tenant graph, inject the fault, triage, investigate; compare the finding with the
+                  hidden ground truth (Scenario node, never read by agent tools)
+  2. memory run - resolve the incident (scribe writes memory), inject the same fault again, investigate;
+                  check that the past incident is recalled and measure the cost
+
+    python -m blastradius.eval                    # all flags, writes docs/EVALUATION.md
+    python -m blastradius.eval paymentFailure     # one flag
+"""
+import json
+import sys
+import time
+from pathlib import Path
+
+from blastradius import db, incidents
+from blastradius.agents import incident_agents, runtime, store
+from blastradius.data import topology
+from blastradius.ingest import ingest
+
+TENANT = "test_eval"   # 'test_' tenants are ignored by the API worker
+FIXES = {
+    "paymentFailure": ("rollback", "Rolled back payment to the previous release"),
+    "paymentUnreachable": ("config", "Restored the network policy from checkout to payment"),
+    "cartFailure": ("flag-off", "Turned off the cartFailure flag"),
+    "adFailure": ("flag-off", "Turned off the adFailure flag"),
+    "productCatalogFailure": ("flag-off", "Turned off the productCatalogFailure flag"),
+    "recommendationCacheFailure": ("flag-off", "Turned off the recommendationCacheFailure flag and warmed the cache"),
+    "kafkaQueueProblems": ("scale", "Scaled order consumers and cleared the stuck messages"),
+    "emailMemoryLeak": ("restart", "Restarted email and scheduled the memory leak fix"),
+}
+REPORT = Path(__file__).resolve().parent.parent / "docs" / "EVALUATION.md"
+
+
+def _run_to_completion(spec, out: dict) -> dict:
+    """Wait out LLM rate-limit pauses: the run resumes from its checkpoint."""
+    pauses = 0
+    while out["status"] == "paused":
+        pauses += 1
+        time.sleep(max(1, out["resume_at"] - time.time()))
+        out = runtime.execute(TENANT, spec, out["run_id"])
+    out["pauses"] = pauses
+    return out
+
+
+def _metrics(run_id: str) -> dict:
+    run = store.load_run(TENANT, run_id)
+    steps = run["steps"]
+    llm = [s for s in steps if s["kind"] == "llm"]
+    fallbacks = sum(len(json.loads(s["output"])["fallbacks"]) for s in llm if s.get("output"))
+    return {
+        "llm_calls": len(llm),
+        "tool_calls": sum(s["kind"] == "tool" and s["tool"] not in runtime.TERMINAL_NAMES for s in steps),
+        "tokens": sum(s.get("tokens") or 0 for s in llm),
+        "models": sorted({f"{s['provider']}/{s['model']}" for s in llm}),
+        "fallbacks": fallbacks,
+    }
+
+
+def _investigate_new_incident(flag: str) -> dict:
+    incidents.simulate_fault(flag, TENANT)
+    inc = incident_agents.triage(TENANT)
+    task = store.claim_task(TENANT, ["investigate"], "eval")
+    start = time.time()
+    out = _run_to_completion(incident_agents.INVESTIGATOR,
+                             incident_agents.investigate(TENANT, inc["id"], task["id"]))
+    store.finish_task(TENANT, task["id"], out["status"])
+    result = out.get("result") or {}
+    return {"incident": inc["id"], "alerts": len(inc["components"]), "status": out["status"],
+            "predicted": result.get("root_cause"), "confidence": result.get("confidence"),
+            "seconds": round(time.time() - start, 1), "pauses": out["pauses"], **_metrics(out["run_id"])}
+
+
+def _cites(incident_id: str, past_id: str) -> bool:
+    rows = db.rows(db.graph(TENANT).ro_query(
+        "MATCH (:Incident {id: $id})-[:HAS_FINDING]->(:Finding)-[:SUPPORTED_BY]->(p:Incident {id: $past}) "
+        "RETURN count(p) AS n", {"id": incident_id, "past": past_id}))
+    return rows[0]["n"] > 0
+
+
+def evaluate_flag(flag: str) -> dict:
+    ingest(TENANT, reset=True)
+    truth = topology.FAULT_FLAGS[flag]
+    cold = _investigate_new_incident(flag)
+
+    kind, fix = FIXES[flag]
+    task_id = incident_agents.resolve(TENANT, cold["incident"], fix, kind, root_cause=truth)
+    task = store.claim_task(TENANT, ["record"], "eval")
+    _run_to_completion(incident_agents.SCRIBE,
+                       incident_agents.write_memory(TENANT, cold["incident"], task["payload"], task_id))
+    store.finish_task(TENANT, task_id)
+
+    warm = _investigate_new_incident(flag)
+    warm["recalled_previous"] = _cites(warm["incident"], cold["incident"])
+    return {"flag": flag, "truth": truth, "cold": cold, "memory": warm}
+
+
+def write_report(results: list[dict]) -> None:
+    def pct(n, d):
+        return f"{n}/{d} ({100 * n // max(d, 1)}%)"
+
+    n = len(results)
+    cold_ok = sum(r["cold"]["predicted"] == r["truth"] for r in results)
+    warm_ok = sum(r["memory"]["predicted"] == r["truth"] for r in results)
+    recalled = sum(r["memory"]["recalled_previous"] for r in results)
+
+    def avg(phase, key):
+        return round(sum(r[phase][key] for r in results) / max(n, 1), 1)
+
+    lines = [
+        "# Evaluation",
+        "",
+        "Generated by `python -m blastradius.eval` against the real LLM fallback chain.",
+        f"Run: {time.strftime('%Y-%m-%d %H:%M')} · models: "
+        f"{', '.join(sorted({m for r in results for p in ('cold', 'memory') for m in r[p]['models']}))}",
+        "",
+        "**Method.** For every fault flag of the OpenTelemetry Demo, a fresh tenant graph is loaded and the fault is",
+        "injected. Monitoring-style alerts fire on the failing component and its dependents. Triage opens an incident and",
+        "the investigator agent runs. Its root cause is compared with the hidden ground truth (a `Scenario` node that no",
+        "agent tool reads). The incident is then resolved, the scribe writes memory, the same fault is injected again,",
+        "and we check whether the investigator cites the incident it just learned from.",
+        "",
+        "Times include waits for free-tier rate limits, so they vary a lot between runs; correctness and recall are the",
+        "stable signals.",
+        "",
+        "## Summary",
+        "| | First occurrence | Same fault again (with memory) |",
+        "|---|---|---|",
+        f"| Root cause correct | **{pct(cold_ok, n)}** | **{pct(warm_ok, n)}** |",
+        f"| Recalled the previous incident | — | **{pct(recalled, n)}** |",
+        f"| Avg LLM calls | {avg('cold', 'llm_calls')} | {avg('memory', 'llm_calls')} |",
+        f"| Avg graph tool calls | {avg('cold', 'tool_calls')} | {avg('memory', 'tool_calls')} |",
+        f"| Avg tokens | {int(avg('cold', 'tokens'))} | {int(avg('memory', 'tokens'))} |",
+        f"| Avg time to finding (s) | {avg('cold', 'seconds')} | {avg('memory', 'seconds')} |",
+        "",
+        "## Per fault",
+        "| Fault flag | True cause | Alerting | 1st: found | conf | LLM / tools | s | 2nd: found | recalled | LLM / tools | s |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r in results:
+        c, m = r["cold"], r["memory"]
+        ok = lambda x: "✅" if x["predicted"] == r["truth"] else f"❌ {x['predicted']}"  # noqa: E731
+        lines.append(
+            f"| `{r['flag']}` | {r['truth']} | {c['alerts']} | {ok(c)} | {c['confidence']} | "
+            f"{c['llm_calls']} / {c['tool_calls']} | {c['seconds']} | {ok(m)} | "
+            f"{'✅' if m['recalled_previous'] else '—'} | {m['llm_calls']} / {m['tool_calls']} | {m['seconds']} |")
+    pauses = sum(r[p]["pauses"] for r in results for p in ("cold", "memory"))
+    fallbacks = sum(r[p]["fallbacks"] for r in results for p in ("cold", "memory"))
+    lines += ["", f"Free-tier rate limits during this run: {fallbacks} fallbacks to another model, and {pauses} pauses "
+              "where every provider was busy. Each paused run resumed from its checkpoint in the graph and finished.", ""]
+    REPORT.write_text("\n".join(lines), encoding="utf-8")
+    (REPORT.parent / "eval_results.json").write_text(json.dumps(results, indent=1), encoding="utf-8")
+
+
+def main() -> None:
+    keep = "--keep" in sys.argv        # keep the eval graph for inspection
+    flags = [a for a in sys.argv[1:] if not a.startswith("--")] or list(topology.FAULT_FLAGS)
+    results = []
+    try:
+        for flag in flags:
+            r = evaluate_flag(flag)
+            results.append(r)
+            print(f"{flag:<28} truth={r['truth']:<16} 1st={r['cold']['predicted']} ({r['cold']['llm_calls']} llm, "
+                  f"{r['cold']['seconds']}s)  2nd={r['memory']['predicted']} recalled={r['memory']['recalled_previous']} "
+                  f"({r['memory']['llm_calls']} llm, {r['memory']['seconds']}s)", flush=True)
+    finally:
+        if not keep:
+            try:
+                db.graph(TENANT).delete()
+            except Exception:
+                pass
+    if len(flags) == len(topology.FAULT_FLAGS):
+        write_report(results)
+        print(f"report: {REPORT}")
+
+
+if __name__ == "__main__":
+    main()

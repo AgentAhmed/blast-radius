@@ -12,6 +12,29 @@ interface Props {
 
 const FIX_KINDS = ["rollback", "flag-off", "config", "restart", "scale", "fix"];
 
+/** One-line cost/memory summary of the investigation: how much work it took and what it remembered. */
+function RunStats({ detail }: { detail: IncidentDetail }) {
+  const run = detail.runs.find((r) => r.agent === "investigator" && r.status === "done");
+  if (!run) return null;
+  const llm = run.steps.filter((s) => s.kind === "llm").length;
+  const tools = run.steps.filter((s) => s.kind === "tool" && s.tool !== "submit_findings").length;
+  const seconds = Math.max(1, run.updated_at - run.started_at);
+  const recalled = detail.evidence.context.filter((c) => c.label === "Incident");
+  const fresh = recalled.filter((c) => !/^INC-10[1-8]$/.test(c.key));   // learned during this session
+  return (
+    <div className="run-stats">
+      <span><b>{llm}</b> LLM calls</span>
+      <span><b>{tools}</b> graph queries</span>
+      <span><b>{seconds}s</b> to root cause</span>
+      {recalled.length > 0 && (
+        <span className={fresh.length ? "memory-hit" : ""}>
+          🧠 recalled {recalled.map((c) => c.key).join(", ")}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function IncidentPanel({ detail, queries, onResolve, onResume }: Props) {
   const { incident, finding } = detail;
   const [fix, setFix] = useState("");
@@ -31,6 +54,8 @@ export default function IncidentPanel({ detail, queries, onResolve, onResume }: 
         <span className="muted">{detail.alerts.length} alerts</span>
       </div>
       <p className="muted small">{incident.summary}</p>
+
+      {finding && <RunStats detail={detail} />}
 
       {finding ? (
         <section className="card finding">

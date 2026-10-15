@@ -5,6 +5,7 @@ the failing component and the components that depend on it start alerting. The t
 separate Scenario node that no agent tool ever reads, so it can be used to score the agents honestly.
 """
 import time
+import uuid
 
 from blastradius import db
 from blastradius.data import topology
@@ -114,8 +115,9 @@ def simulate_fault(flag: str, tenant: str | None = None, now: int | None = None)
             sev = "critical" if d["hops"] == 1 else "warning"
             value = round(0.3 / d["hops"], 3) if signal == "error_rate" else 2400
         alerts.append(_alert(d["name"], signal, sev, value, now + 20 * d["hops"]))
+    batch = uuid.uuid4().hex[:6]   # unique even when several faults are injected in the same second
     for i, a in enumerate(alerts):
-        a["id"] = f"AL-{now}-{i}"
+        a["id"] = f"AL-{now}-{batch}-{i}"
 
     g.query(CREATE_ALERTS, {"alerts": alerts})
     g.query("CREATE (:Scenario {flag: $flag, root: $root, started_at: $now})",

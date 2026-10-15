@@ -28,7 +28,7 @@ class AgentSpec:
     tools: dict[str, Tool]
     max_llm_calls: int = 8
     accept_text_answer: bool = False                 # plain text reply counts as the final answer
-    validate: Callable[[str, dict], None] | None = None   # raise ToolError to reject a terminal result
+    validate: Callable[[str, str, dict], None] | None = None  # (tenant, run_id, result); raise ToolError to reject
     on_finish: Callable[[str, dict, dict], None] | None = None  # (tenant, run, result)
     temperature: float = 0.1
     extra: dict = field(default_factory=dict)
@@ -76,11 +76,13 @@ def execute(tenant: str, spec: AgentSpec, run_id: str, gw: LLMGateway | None = N
             if final is not None:
                 return _finish(tenant, spec, run_id, final)
 
-        # 2. Out of budget: ask once more for the final answer, then give up.
-        if llm_calls >= spec.max_llm_calls + 1:
+        # 2. Out of budget: ask once more for the final answer, then give up. A rejected final answer
+        #    (e.g. a root cause the graph contradicts) earns one extra call to correct it.
+        budget = spec.max_llm_calls + min(_rejected_finals(messages, spec), 2)
+        if llm_calls >= budget + 1:
             store.set_status(tenant, run_id, "failed", error="step budget exhausted")
             return {"run_id": run_id, "status": "failed", "result": None}
-        if llm_calls == spec.max_llm_calls:
+        if llm_calls == budget:
             n += 1
             nudge = f"Step budget reached. Call {spec.terminal.name} now with what you know."
             store.add_step(tenant, run_id, n, "note", message={"role": "user", "content": nudge})
@@ -129,7 +131,7 @@ def _run_tool(tenant, spec: AgentSpec, run_id, n, call) -> tuple[dict, dict | No
             result = humanize_times(result)
         if tool.terminal:
             if spec.validate:
-                spec.validate(tenant, result)
+                spec.validate(tenant, run_id, result)
             final = result
     except ToolError as e:
         args = args if "args" in locals() else {}
@@ -181,6 +183,14 @@ def _rebuild(run: dict) -> list[dict]:
         elif s["kind"] == "tool":
             messages.append({"role": "tool", "tool_call_id": s["tool_call_id"], "content": s.get("output") or "{}"})
     return messages
+
+
+def _rejected_finals(messages: list[dict], spec: AgentSpec) -> int:
+    """How many times the terminal tool was called and sent back with an error."""
+    final_ids = {c["id"] for m in messages if m["role"] == "assistant" for c in m.get("tool_calls") or []
+                 if c["function"]["name"] == spec.terminal.name}
+    return sum(1 for m in messages if m["role"] == "tool" and m["tool_call_id"] in final_ids
+               and m["content"].startswith('{"error"'))
 
 
 def _pending_calls(messages: list[dict]) -> list[dict]:

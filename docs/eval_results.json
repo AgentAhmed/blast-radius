@@ -1,0 +1,318 @@
+[
+ {
+  "flag": "paymentFailure",
+  "truth": "payment",
+  "cold": {
+   "incident": "INC-109",
+   "alerts": 4,
+   "status": "done",
+   "predicted": "payment",
+   "confidence": 0.93,
+   "seconds": 6.0,
+   "pauses": 0,
+   "llm_calls": 4,
+   "tool_calls": 3,
+   "tokens": 6637,
+   "models": [
+    "groq/openai/gpt-oss-120b"
+   ],
+   "fallbacks": 0
+  },
+  "memory": {
+   "incident": "INC-110",
+   "alerts": 4,
+   "status": "done",
+   "predicted": "payment",
+   "confidence": 0.95,
+   "seconds": 5.7,
+   "pauses": 0,
+   "llm_calls": 4,
+   "tool_calls": 3,
+   "tokens": 6599,
+   "models": [
+    "groq/openai/gpt-oss-120b"
+   ],
+   "fallbacks": 0,
+   "recalled_previous": true
+  }
+ },
+ {
+  "flag": "paymentUnreachable",
+  "truth": "payment",
+  "cold": {
+   "incident": "INC-109",
+   "alerts": 4,
+   "status": "done",
+   "predicted": "payment",
+   "confidence": 0.9,
+   "seconds": 4.4,
+   "pauses": 0,
+   "llm_calls": 5,
+   "tool_calls": 4,
+   "tokens": 8538,
+   "models": [
+    "groq/openai/gpt-oss-120b",
+    "groq/openai/gpt-oss-20b"
+   ],
+   "fallbacks": 1
+  },
+  "memory": {
+   "incident": "INC-110",
+   "alerts": 4,
+   "status": "done",
+   "predicted": "payment",
+   "confidence": 0.85,
+   "seconds": 4.6,
+   "pauses": 0,
+   "llm_calls": 4,
+   "tool_calls": 4,
+   "tokens": 8190,
+   "models": [
+    "groq/openai/gpt-oss-120b",
+    "groq/qwen/qwen3.8-27b"
+   ],
+   "fallbacks": 2,
+   "recalled_previous": false
+  }
+ },
+ {
+  "flag": "cartFailure",
+  "truth": "cart",
+  "cold": {
+   "incident": "INC-109",
+   "alerts": 4,
+   "status": "done",
+   "predicted": "cart",
+   "confidence": 0.7,
+   "seconds": 17.2,
+   "pauses": 1,
+   "llm_calls": 5,
+   "tool_calls": 4,
+   "tokens": 9495,
+   "models": [
+    "groq/openai/gpt-oss-120b",
+    "groq/openai/gpt-oss-20b",
+    "groq/qwen/qwen3.8-27b"
+   ],
+   "fallbacks": 1
+  },
+  "memory": {
+   "incident": "INC-110",
+   "alerts": 4,
+   "status": "done",
+   "predicted": "cart",
+   "confidence": 0.85,
+   "seconds": 58.6,
+   "pauses": 5,
+   "llm_calls": 6,
+   "tool_calls": 5,
+   "tokens": 10340,
+   "models": [
+    "groq/openai/gpt-oss-120b"
+   ],
+   "fallbacks": 0,
+   "recalled_previous": true
+  }
+ },
+ {
+  "flag": "adFailure",
+  "truth": "ad",
+  "cold": {
+   "incident": "INC-109",
+   "alerts": 3,
+   "status": "done",
+   "predicted": "ad",
+   "confidence": 0.55,
+   "seconds": 8.6,
+   "pauses": 0,
+   "llm_calls": 8,
+   "tool_calls": 7,
+   "tokens": 16964,
+   "models": [
+    "groq/openai/gpt-oss-120b",
+    "groq/openai/gpt-oss-20b",
+    "groq/qwen/qwen3.8-27b"
+   ],
+   "fallbacks": 3
+  },
+  "memory": {
+   "incident": "INC-110",
+   "alerts": 3,
+   "status": "done",
+   "predicted": "ad",
+   "confidence": 0.9,
+   "seconds": 45.0,
+   "pauses": 10,
+   "llm_calls": 6,
+   "tool_calls": 5,
+   "tokens": 11666,
+   "models": [
+    "groq/openai/gpt-oss-120b",
+    "groq/openai/gpt-oss-20b",
+    "groq/qwen/qwen3.8-27b"
+   ],
+   "fallbacks": 2,
+   "recalled_previous": true
+  }
+ },
+ {
+  "flag": "productCatalogFailure",
+  "truth": "product-catalog",
+  "cold": {
+   "incident": "INC-109",
+   "alerts": 6,
+   "status": "done",
+   "predicted": "product-catalog",
+   "confidence": 0.9,
+   "seconds": 5.2,
+   "pauses": 0,
+   "llm_calls": 4,
+   "tool_calls": 3,
+   "tokens": 6817,
+   "models": [
+    "groq/openai/gpt-oss-120b",
+    "groq/openai/gpt-oss-20b"
+   ],
+   "fallbacks": 2
+  },
+  "memory": {
+   "incident": "INC-110",
+   "alerts": 6,
+   "status": "done",
+   "predicted": "product-catalog",
+   "confidence": 0.85,
+   "seconds": 5.6,
+   "pauses": 0,
+   "llm_calls": 5,
+   "tool_calls": 4,
+   "tokens": 10286,
+   "models": [
+    "groq/openai/gpt-oss-120b",
+    "groq/openai/gpt-oss-20b",
+    "groq/qwen/qwen3.8-27b"
+   ],
+   "fallbacks": 2,
+   "recalled_previous": true
+  }
+ },
+ {
+  "flag": "recommendationCacheFailure",
+  "truth": "recommendation",
+  "cold": {
+   "incident": "INC-109",
+   "alerts": 3,
+   "status": "done",
+   "predicted": "recommendation",
+   "confidence": 0.85,
+   "seconds": 16.9,
+   "pauses": 2,
+   "llm_calls": 6,
+   "tool_calls": 5,
+   "tokens": 11350,
+   "models": [
+    "groq/openai/gpt-oss-120b",
+    "groq/openai/gpt-oss-20b"
+   ],
+   "fallbacks": 2
+  },
+  "memory": {
+   "incident": "INC-110",
+   "alerts": 3,
+   "status": "done",
+   "predicted": "recommendation",
+   "confidence": 0.95,
+   "seconds": 35.9,
+   "pauses": 2,
+   "llm_calls": 5,
+   "tool_calls": 4,
+   "tokens": 8557,
+   "models": [
+    "groq/openai/gpt-oss-120b",
+    "groq/openai/gpt-oss-20b"
+   ],
+   "fallbacks": 1,
+   "recalled_previous": true
+  }
+ },
+ {
+  "flag": "kafkaQueueProblems",
+  "truth": "orders",
+  "cold": {
+   "incident": "INC-109",
+   "alerts": 5,
+   "status": "done",
+   "predicted": "orders",
+   "confidence": 0.78,
+   "seconds": 26.6,
+   "pauses": 1,
+   "llm_calls": 8,
+   "tool_calls": 6,
+   "tokens": 17447,
+   "models": [
+    "groq/openai/gpt-oss-120b",
+    "groq/openai/gpt-oss-20b",
+    "groq/qwen/qwen3.8-27b"
+   ],
+   "fallbacks": 3
+  },
+  "memory": {
+   "incident": "INC-110",
+   "alerts": 5,
+   "status": "done",
+   "predicted": "orders",
+   "confidence": 0.7,
+   "seconds": 21.1,
+   "pauses": 4,
+   "llm_calls": 4,
+   "tool_calls": 8,
+   "tokens": 9792,
+   "models": [
+    "groq/openai/gpt-oss-120b",
+    "groq/openai/gpt-oss-20b",
+    "groq/qwen/qwen3.8-27b"
+   ],
+   "fallbacks": 2,
+   "recalled_previous": true
+  }
+ },
+ {
+  "flag": "emailMemoryLeak",
+  "truth": "email",
+  "cold": {
+   "incident": "INC-109",
+   "alerts": 4,
+   "status": "done",
+   "predicted": "email",
+   "confidence": 0.92,
+   "seconds": 13.4,
+   "pauses": 0,
+   "llm_calls": 5,
+   "tool_calls": 4,
+   "tokens": 8395,
+   "models": [
+    "groq/openai/gpt-oss-120b",
+    "groq/openai/gpt-oss-20b"
+   ],
+   "fallbacks": 1
+  },
+  "memory": {
+   "incident": "INC-110",
+   "alerts": 4,
+   "status": "done",
+   "predicted": "email",
+   "confidence": 0.95,
+   "seconds": 24.2,
+   "pauses": 9,
+   "llm_calls": 6,
+   "tool_calls": 5,
+   "tokens": 11391,
+   "models": [
+    "groq/openai/gpt-oss-120b",
+    "groq/openai/gpt-oss-20b",
+    "groq/qwen/qwen3.8-27b"
+   ],
+   "fallbacks": 2,
+   "recalled_previous": true
+  }
+ }
+]

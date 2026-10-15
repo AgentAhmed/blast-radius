@@ -193,3 +193,20 @@ def test_entities_cited_in_text():
     refs = store.entities_in_text(TENANT, f"payment broke after PR {pr}; like INC-101. Not payments-team.")
     assert ("Component", "payment") in refs and ("PullRequest", pr) in refs and ("Incident", "INC-101") in refs
     assert ("Component", "checkout") not in refs
+
+
+def test_root_cause_that_does_not_explain_the_alerts_is_sent_back_once():
+    inc = new_payment_incident()
+    wrong = {**FINDINGS, "root_cause": "checkout"}      # covers 3 of 4 alerting components; payment covers 4
+    llm = ScriptedLLM([reply(call("submit_findings", **wrong)), reply(call("submit_findings", **FINDINGS))])
+    out = runtime.start(TENANT, incident_agents.INVESTIGATOR, "t", "sys", "user", incident=inc["id"], gw=llm)
+    steps = store.load_run(TENANT, out["run_id"])["steps"]
+    assert "does not explain all alerts" in steps[1]["output"] and "'payment'" in steps[1]["output"]
+    assert out["result"]["root_cause"] == "payment"
+    store.finish_task(TENANT, store.claim_task(TENANT, ["investigate"], "w")["id"])
+
+    inc = new_payment_incident()                        # insisting a second time is accepted
+    llm = ScriptedLLM([reply(call("submit_findings", **wrong)), reply(call("submit_findings", **wrong))])
+    out = runtime.start(TENANT, incident_agents.INVESTIGATOR, "t", "sys", "user", incident=inc["id"], gw=llm)
+    assert out["result"]["root_cause"] == "checkout"
+    store.finish_task(TENANT, store.claim_task(TENANT, ["investigate"], "w")["id"])

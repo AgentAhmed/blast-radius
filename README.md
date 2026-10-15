@@ -27,6 +27,23 @@ postmortems. LLM agents that see only fragments guess, forget past incidents, an
 | 🤖 | **2 · Memory and coordination** | **Triage → investigator → scribe** hand work to each other through `Task` nodes, claimed atomically. On resolution, the scribe writes a postmortem, a lesson and embeddings, so the **same fault next time is recalled with its fix**. Every agent step is a `Step` node, so runs **pause on LLM rate limits and resume** after crashes. Each org has **its own graph**. |
 | 🧠 | **3 · Company brain** | Ask *"who should I page for payment and who knows it best?"*, *"why does checkout use Kafka?"* or *"which services only one person understands?"*. Answers come from owners, on-call, change history, ADRs and postmortems, **with sources**. |
 
+## Does it work? Measured on every fault
+`python -m blastradius.eval` injects each of the OpenTelemetry Demo's 8 fault flags into a fresh graph and runs the
+real investigator on free-tier Groq models. It scores the result against hidden ground truth, then resolves the
+incident and injects the same fault again.
+
+| | First occurrence | Same fault again |
+|---|---|---|
+| Root cause correct | **8/8** | **8/8** |
+| Cited the incident it had just learned from | — | **7/8** |
+| Avg LLM calls / graph queries | 5.6 / 4.5 | 5.0 / 4.8 |
+
+This includes faults where the cause never alerts itself (the Kafka topic `orders`). During the run, free-tier rate
+limits caused 24 model fallbacks and 34 full pauses, and every paused run resumed from its checkpoint and finished.
+A **graph consistency check** sends back conclusions the topology contradicts, for example a root cause that only some
+of the alerting services depend on. That check fixed the misses we saw in earlier runs.
+Details: [docs/EVALUATION.md](docs/EVALUATION.md).
+
 ## Why a graph, and why FalkorDB
 - **Root cause** is the dependency that all alerting components share, which is a multi-hop traversal.
 - **Blast radius** is everything that transitively depends on X: a variable-length path, walked backwards.

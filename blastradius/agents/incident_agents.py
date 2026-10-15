@@ -55,12 +55,14 @@ every claim must come from a tool result.
 
 Work efficiently (you have a small step budget). A good plan:
 1. root_cause_candidates with all alerting components.
-2. recent_changes and similar_incidents for the top candidate(s). Call several tools in one turn when you can.
-3. past_fixes for the most likely root cause if a fix is not yet clear.
+2. recent_changes, similar_incidents and past_fixes for the top candidate, in ONE turn (parallel tool calls).
+3. Only if the top candidates are close, check the runner-up the same way.
 4. submit_findings with the root cause, your confidence, short evidence and a concrete recommended action.
 
-Reading root_cause_candidates: 'covers' = how many alerting components depend on it; a candidate that is
-alerting, has no alerting dependencies of its own and changed recently is the strongest suspect. A
+Reading root_cause_candidates: the list is already ranked by the graph. 'covers' = how many alerting
+components depend on it. The root cause must explain the alerts: prefer the top candidate unless tool
+results clearly contradict it. A recent change is supporting evidence only for a candidate that covers the
+alerts; a change in a component that most alerting components do not depend on cannot explain them. A
 component that does not alert itself can still be the cause (e.g. a Kafka topic or datastore).
 
 Separate facts from hypotheses: past incidents show what happened before, not what is happening now.
@@ -70,13 +72,39 @@ INVESTIGATOR_TOOLS = ["root_cause_candidates", "recent_changes", "similar_incide
                       "blast_radius", "path_to_user", "component_overview", "who_to_page", "criticality"]
 
 
-def _validate_findings(tenant, result):
-    if result.get("root_cause") not in queries.component_names(tenant):
-        raise ToolError(f"root_cause must be a component name, got '{result.get('root_cause')}'")
+COVERAGE_REJECTION = "does not explain all alerts"
+
+
+def _validate_findings(tenant, run_id, result):
+    root = result.get("root_cause")
+    if root not in queries.component_names(tenant):
+        raise ToolError(f"root_cause must be a component name, got '{root}'")
     try:
         result["confidence"] = max(0.0, min(1.0, float(result.get("confidence", 0))))
     except (TypeError, ValueError):
         raise ToolError("confidence must be a number between 0 and 1")
+
+    # Graph consistency check: a root cause must explain the alerts. If another component explains more of
+    # them, send the claim back once with the numbers; a second identical submission is accepted.
+    run = store.load_run(tenant, run_id)
+    if any(COVERAGE_REJECTION in (s.get("output") or "") for s in run["steps"]):
+        return
+    alerting = sorted({a["component"] for a in incidents.get_incident(run["incident"], tenant)["alerts"]})
+    ranked = queries.root_cause_candidates(alerting, tenant, limit=50)
+    by_name = {r["component"]: r for r in ranked}
+    best = ranked[0]
+    mine = by_name.get(root, {"covers": 0, "is_alerting": False})
+    if mine["covers"] < best["covers"]:
+        raise ToolError(
+            f"'{root}' {COVERAGE_REJECTION}: only {mine['covers']} of {len(alerting)} alerting components "
+            f"depend on it, while '{best['component']}' is a dependency of {best['covers']}. A change in '{root}' "
+            f"cannot cause alerts on components that do not depend on it. Reconsider, or submit again if you have "
+            f"evidence the graph does not show.")
+    if best["is_alerting"] and not mine["is_alerting"] and best["component"] != root:
+        raise ToolError(
+            f"'{root}' {COVERAGE_REJECTION} better than '{best['component']}': both explain {best['covers']} "
+            f"alerting components, but '{best['component']}' is alerting itself and '{root}' shows no symptoms. "
+            f"Reconsider, or submit again if you have evidence the graph does not show.")
 
 
 RECORD_FINDING = """
