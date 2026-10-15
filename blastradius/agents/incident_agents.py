@@ -8,6 +8,7 @@ Triage is deterministic on purpose: grouping alerts and scoring severity needs n
 no LLM calls. The LLM is used where judgement is needed: weighing evidence and writing for humans.
 """
 import json
+import threading
 import time
 import uuid
 
@@ -21,12 +22,16 @@ from blastradius.agents.tools import FINAL_ANSWER, SUBMIT_FINDINGS, WRITE_POSTMO
 # ---------------------------------------------------------------------------------------------
 
 
+_triage_lock = threading.Lock()  # API and worker thread may triage at the same time
+
+
 def triage(tenant: str) -> dict | None:
     """Group firing alerts into an incident and hand it to the investigator."""
-    alerts = incidents.ungrouped_alerts(tenant)
-    if not alerts:
-        return None
-    inc = incidents.open_incident(alerts, tenant)
+    with _triage_lock:
+        alerts = incidents.ungrouped_alerts(tenant)
+        if not alerts:
+            return None
+        inc = incidents.open_incident(alerts, tenant)
     run_id = store.create_run(tenant, "triage", f"Triage alerts into {inc['id']}",
                               system="deterministic", user=json.dumps([a["id"] for a in alerts]),
                               incident=inc["id"])
@@ -82,11 +87,6 @@ CREATE (f:Finding {id: $id, root_cause: $root, confidence: $confidence, summary:
 CREATE (i)-[:HAS_FINDING]->(f)
 CREATE (f)-[:BLAMES]->(rc)
 WITH f
-OPTIONAL MATCH (s:Step {run: $run})-[:TOUCHED]->(n)
-WHERE NOT n:Incident
-WITH f, collect(DISTINCT n) AS evidence_nodes
-FOREACH (n IN evidence_nodes | MERGE (f)-[:SUPPORTED_BY]->(n))
-WITH f
 MATCH (last:Step {id: $last_step})
 MERGE (last)-[:PRODUCED]->(f)
 """
@@ -102,6 +102,10 @@ def _after_investigation(tenant, run, result):
         "evidence": result.get("evidence") or [], "suspect": result.get("suspect_change") or "",
         "action": result["recommended_action"], "now": int(time.time()), "run": run["id"], "last_step": last_step,
     })
+    # Evidence = the graph entities the finding actually cites (not everything the agent looked at).
+    cited = " ".join([result["summary"], result.get("suspect_change") or "", *(result.get("evidence") or [])])
+    refs = [r for r in store.entities_in_text(tenant, cited) if r != ("Incident", incident_id)]
+    store.link_entities(tenant, "Finding", finding_id, "SUPPORTED_BY", refs + [("Component", result["root_cause"])])
     db.graph(tenant).query("MATCH (i:Incident {id: $id}) SET i.status = 'identified'", {"id": incident_id})
 
     # Act: page the on-call owner of the root cause, open a tracking issue.

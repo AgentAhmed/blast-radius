@@ -135,14 +135,19 @@ TOUCH_KEYS = {"Component": "name", "Person": "handle", "Incident": "id", "Decisi
 
 
 def link_touched(tenant, step_id: str, touched: list[tuple[str, str]]) -> None:
+    link_entities(tenant, "Step", step_id, "TOUCHED", touched)
+
+
+def link_entities(tenant, from_label: str, from_id: str, rel: str, refs: list[tuple[str, str]]) -> None:
+    """MERGE (from)-[rel]->(entity) for each (label, key). Labels/rel come from code, never from the LLM."""
     g = db.graph(tenant)
     by_label: dict[str, set] = {}
-    for label, key in touched:
+    for label, key in refs:
         by_label.setdefault(label, set()).add(key)
     for label, keys in by_label.items():
         prop = TOUCH_KEYS[label]
-        g.query(f"MATCH (s:Step {{id: $sid}}) UNWIND $keys AS k MATCH (n:{label} {{{prop}: k}}) "
-                "MERGE (s)-[:TOUCHED]->(n)", {"sid": step_id, "keys": sorted(keys)})
+        g.query(f"MATCH (s:{from_label} {{id: $sid}}) UNWIND $keys AS k MATCH (n:{label} {{{prop}: k}}) "
+                f"MERGE (s)-[:{rel}]->(n)", {"sid": from_id, "keys": sorted(keys, key=str)})
 
 
 def set_status(tenant, run_id: str, status: str, *, resume_at=None, error=None, result=None, provider=None):
@@ -159,7 +164,7 @@ def load_run(tenant, run_id: str) -> dict | None:
     row = rows[0]
     run = dict(row["run"])
     run["incident"] = row["incident"]
-    run["steps"] = [dict(s) for s in row["steps"] if s.get("id")]
+    run["steps"] = sorted((dict(s) for s in row["steps"] if s.get("id")), key=lambda s: s["n"])
     if run.get("result"):
         run["result"] = json.loads(run["result"])
     return run
@@ -239,4 +244,22 @@ def entities_in(tenant: str, value) -> list[tuple[str, str]]:
                     found.add((label, v))
 
     walk(value)
+    return sorted(found, key=lambda t: (t[0], str(t[1])))
+
+
+_PR_IN_TEXT = re.compile(r"\bPR\s*#?(\d{3,6})\b", re.IGNORECASE)
+_ID_IN_TEXT = re.compile(r"\b(INC-\d+|ADR-\d+|RB-[\w-]+|LES-INC-\d+)\b")
+
+
+def entities_in_text(tenant: str, text: str) -> list[tuple[str, str]]:
+    """Graph entities cited in free text written by the model (component names, PR 1082, INC-101, ...)."""
+    vocab = _vocabulary(tenant)
+    found: set = set()
+    for label in ("Component", "Person"):
+        for key in vocab[label]:
+            if re.search(rf"(?<![\w-]){re.escape(key)}(?![\w-])", text):
+                found.add((label, key))
+    found.update(("PullRequest", int(n)) for n in _PR_IN_TEXT.findall(text))
+    for ident in _ID_IN_TEXT.findall(text):
+        found.update(e for e in entities_in(tenant, ident))
     return sorted(found, key=lambda t: (t[0], str(t[1])))

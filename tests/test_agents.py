@@ -178,3 +178,18 @@ def test_humanize_times():
     now = 1_000_000_000 + 10 * 86400
     out = runtime.humanize_times({"merged_at": now - 7200, "on_call_until": now + 3 * 86400, "pr": 1082}, now)
     assert out == {"merged_at": "2h ago", "on_call_until": "in 3d", "pr": 1082}
+
+
+def test_final_answer_called_with_other_tools_runs_last():
+    llm = ScriptedLLM([reply(call("final_answer", answer="a", sources=[]),
+                             call("decisions_for", component="checkout"))])
+    out = runtime.start(TENANT, incident_agents.BRAIN, "q", "sys", "user", gw=llm)
+    assert tool_steps(out["run_id"]) == ["decisions_for", "final_answer"]
+
+
+def test_entities_cited_in_text():
+    pr = db.rows(db.graph(TENANT).ro_query(
+        "MATCH (pr:PullRequest {title: 'Switch payment gateway client to v3 SDK'}) RETURN pr.number AS n"))[0]["n"]
+    refs = store.entities_in_text(TENANT, f"payment broke after PR {pr}; like INC-101. Not payments-team.")
+    assert ("Component", "payment") in refs and ("PullRequest", pr) in refs and ("Incident", "INC-101") in refs
+    assert ("Component", "checkout") not in refs

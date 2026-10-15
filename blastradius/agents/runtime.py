@@ -188,7 +188,12 @@ def _pending_calls(messages: list[dict]) -> list[dict]:
     if last is None:
         return []
     done = {m["tool_call_id"] for m in messages[last + 1:] if m["role"] == "tool"}
-    return [c for c in messages[last].get("tool_calls") or [] if c["id"] not in done]
+    pending = [c for c in messages[last].get("tool_calls") or [] if c["id"] not in done]
+    # A final-answer tool called in the same turn as other tools runs last.
+    return sorted(pending, key=lambda c: c["function"]["name"] in TERMINAL_NAMES)
+
+
+TERMINAL_NAMES = {"submit_findings", "final_answer", "write_postmortem"}
 
 
 def _assistant_dict(message) -> dict:
