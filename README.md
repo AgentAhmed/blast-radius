@@ -25,7 +25,7 @@ postmortems. LLM agents that see only fragments guess, forget past incidents, an
 ## What it does
 | | Track | What happens |
 |---|---|---|
-| 🕵️ | **1 · Acts on connected data** | An alert fires and the **investigator agent** walks the dependency graph to rank root causes. It finds recent changes near the failure, uses **PageRank** and **shortest path** as tools, then **pages the on-call owner** and opens a **GitHub issue** with the evidence. The same tools are available over **MCP**. |
+| 🕵️ | **1 · Acts on connected data** | An alert fires and the **investigator agent** walks the dependency graph to rank root causes. It finds recent changes near the failure, uses **PageRank** and **shortest path** as tools, then **pages the on-call owner**, opens a **GitHub issue** with the evidence and posts the incident to **Slack or Discord**. The same tools are available over **MCP**. |
 | 🤖 | **2 · Memory and coordination** | **Triage → investigator → scribe** hand work to each other through `Task` nodes, claimed atomically. On resolution, the scribe writes a postmortem, a lesson and embeddings, so the **same fault next time is recalled with its fix**. Every agent step is a `Step` node, so runs **pause on LLM rate limits and resume** after crashes. Each org has **its own graph**. |
 | 🧠 | **3 · Company brain** | Ask *"who should I page for payment and who knows it best?"*, *"why does checkout use Kafka?"* or *"which services only one person understands?"*. Answers come from owners, on-call, change history, ADRs and postmortems, **with sources**. |
 
@@ -149,7 +149,7 @@ To work on the UI with hot reload, run `cd ui && npm run dev` and open http://lo
 python -m blastradius.cli root-cause payment checkout frontend frontend-proxy   # graph tools from the terminal
 python -m blastradius.agents.worker                                            # standalone worker(s)
 python -m blastradius.mcp_server                                               # MCP server (stdio)
-pytest                                                                          # 48 tests (FalkorDB must be running)
+pytest                                                                          # 51 tests (FalkorDB must be running)
 ```
 
 ## Run it on real data
@@ -164,6 +164,10 @@ sources, and every agent and view works on it unchanged ([docs/CONNECTORS.md](do
   - people get stable pseudonyms by default
 - **Send real alerts** to `POST /api/alerts?tenant=...` in **Prometheus Alertmanager** format, or simple JSON.
   Labels like `service`, `app` or a pod name are mapped to components, and the agents investigate as usual.
+
+- **Act in real tools** (optional, in `.env`): `GITHUB_TOKEN` + `GITHUB_REPO` open real issues;
+  `SLACK_WEBHOOK_URL` and/or `DISCORD_WEBHOOK_URL` post each incident to a channel when it is identified and
+  when it is resolved. Without them, actions are recorded in the graph only.
 
 Tested on `open-telemetry/opentelemetry-demo`:
 - **Topology:** 26 components and 43 dependencies, read automatically from its 4 compose files.
@@ -211,7 +215,7 @@ blastradius/
   agents/incident_agents.py             triage, investigator, scribe, company brain
   agents/worker.py                      claims tasks, resumes paused runs
   llm/                                  provider fallback gateway
-  actions.py                            page owner, GitHub issue (idempotent)
+  actions.py                            page owner, GitHub issue, Slack/Discord post (idempotent)
   api.py, mcp_server.py, cli.py         HTTP API + worker, MCP server, CLI
 ui/                                     React + Cytoscape console
 docs/                                   architecture, graph model, agents, guides

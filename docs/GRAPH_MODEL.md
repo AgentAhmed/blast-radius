@@ -60,7 +60,7 @@ its tenant, and a query can only see that tenant's graph.
 | `Alert` | id, signal (error_rate / latency_p99 / consumer_lag), severity, value, fired_at, status |
 | `Incident` | id, title, severity, status (investigating → identified → resolving → resolved), opened_at, resolved_at, summary, **embedding** |
 | `Finding` | id, root_cause, confidence, summary, evidence[], suspect_change, recommended_action |
-| `Action` | id, kind (page / github_issue / rollback / flag-off / ...), status, url, detail |
+| `Action` | id, kind (page / github_issue / slack / discord / rollback / flag-off / ...), status, url, detail |
 | `Scenario` | flag, root, started_at. **Ground truth of a simulated fault; never read by agent tools.** |
 
 | Edge | Meaning |

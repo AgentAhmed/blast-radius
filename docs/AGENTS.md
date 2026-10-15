@@ -4,7 +4,7 @@
 | Agent | Uses LLM? | Input | Output | Tools |
 |---|---|---|---|---|
 | **Triage** | No | Firing alerts not yet in an incident | `Incident` (severity from user flows at risk), `Task{investigate}` | — |
-| **Investigator** | Yes (≤ 7 calls) | Incident with alerts | `Finding` with evidence; pages the on-call person; opens a GitHub issue | root_cause_candidates, recent_changes, similar_incidents, past_fixes, blast_radius, path_to_user, component_overview, who_to_page, criticality → `submit_findings` |
+| **Investigator** | Yes (≤ 7 calls) | Incident with alerts | `Finding` with evidence; pages the on-call person; opens a GitHub issue; posts to Slack/Discord | root_cause_candidates, recent_changes, similar_incidents, past_fixes, blast_radius, path_to_user, component_overview, who_to_page, criticality → `submit_findings` |
 | **Scribe** | Yes (1 call) | Resolved incident and its fix | Postmortem `Document`, `Lesson`, embeddings, `SIMILAR_TO` links | → `write_postmortem` |
 | **Company brain** | Yes (≤ 6 calls) | A question, plus earlier turns in the session | Answer with sources | 15 read tools → `final_answer` |
 

@@ -146,11 +146,19 @@ def _after_investigation(tenant, run, result):
         actions.page(tenant, incident_id, experts[0]["person"],
                      f"Top expert on {result['root_cause']} ({experts[0]['changes']} changes); no on-call schedule")
     evidence = "\n".join(f"- {e}" for e in result.get("evidence") or [])
-    actions.github_issue(
+    issue = actions.github_issue(
         tenant, incident_id, f"[{incident_id}] Root cause: {result['root_cause']}",
         f"{result['summary']}\n\n**Evidence (from the graph)**\n{evidence}\n\n"
         f"**Recommended action:** {result['recommended_action']}\n\n"
         f"Confidence: {result['confidence']:.0%} - investigated by Blast Radius run `{run['id']}`")
+    inc = incidents.get_incident(incident_id, tenant)
+    paged = ", ".join(f"@{p['handle']} ({p['reason']})" for p in inc["paged"]) or "nobody (no owner found)"
+    actions.notify(
+        tenant, incident_id, "identified",
+        f"🚨 {incident_id} {inc['incident']['severity']} · root cause: {result['root_cause']} "
+        f"({result['confidence']:.0%})",
+        [result["summary"], f"Paging: {paged}", f"Recommended action: {result['recommended_action']}"],
+        issue.get("url"))
 
 
 INVESTIGATOR = AgentSpec(
@@ -228,6 +236,8 @@ def resolve(tenant: str, incident_id: str, fix: str, fix_kind: str = "fix", root
     if root not in queries.component_names(tenant):
         raise ValueError("root_cause is required when the incident has no finding")
     db.graph(tenant).query("MATCH (i:Incident {id: $id}) SET i.status = 'resolving'", {"id": incident_id})
+    actions.notify(tenant, incident_id, "resolved", f"✅ {incident_id} resolved · root cause: {root}",
+                   [f"Fix ({fix_kind}): {fix}", "The scribe agent is recording this in incident memory."])
     return store.create_task(tenant, "record", incident_id, created_by="human",
                              payload={"fix": fix, "fix_kind": fix_kind, "root_cause": root})
 
