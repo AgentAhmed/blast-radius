@@ -1,0 +1,19 @@
+[project]
+name = "blast-radius"
+version = "0.1.0"
+description = "AI on-call agents that use a FalkorDB graph as their context, memory and audit trail."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "falkordb>=1.0.10",
+    "python-dotenv>=1.0.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
