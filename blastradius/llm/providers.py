@@ -1,15 +1,20 @@
 """LLM provider slots.
 
-Every provider here speaks the OpenAI chat-completions API, so one client works for all of them.
-A slot without an API key is simply skipped, so slots can be left as templates until a key is added.
-Local Ollama comes last and needs no key; it is tried only if it is running.
+Two kinds of slot:
+  openai     - any API that speaks the OpenAI chat-completions format (Groq, Gemini, OpenRouter, OpenAI,
+               Ollama, and a custom slot for Cerebras, Mistral, Together, ...). One client works for all.
+  anthropic  - Claude, called through the official Anthropic SDK (blastradius/llm/anthropic_adapter.py).
+
+A slot without an API key is skipped, so every slot can stay as a ready-to-use template until a key is added.
+Local Ollama needs no key and is skipped while it is not running. Free tiers come first, paid APIs after,
+local last.
 
 Environment variables (see .env.example):
-  LLM_PROVIDER_ORDER   comma list, default: groq,gemini,openrouter,custom,ollama
+  LLM_PROVIDER_ORDER   comma list, default: groq,gemini,openrouter,openai,anthropic,custom,ollama
   <NAME>_API_KEY       key for a provider (empty = skipped)
   <NAME>_MODELS        comma list overriding the default models, tried in order
   <NAME>_RPM           requests per minute we allow ourselves for that provider
-  CUSTOM_LLM_BASE_URL  any other OpenAI-compatible endpoint (Cerebras, Mistral, Together, ...)
+  CUSTOM_LLM_BASE_URL  any other OpenAI-compatible endpoint
 """
 import os
 from dataclasses import dataclass, field
@@ -23,6 +28,8 @@ class Provider:
     api_key_env: str | None = None   # None = no key needed (local model)
     rpm: int = 30
     local: bool = False
+    kind: str = "openai"             # "openai" (chat-completions format) or "anthropic" (Claude SDK)
+    send_temperature: bool = True    # some reasoning models reject a temperature parameter
     extra_headers: dict = field(default_factory=dict)
 
     @property
@@ -31,7 +38,7 @@ class Provider:
 
     @property
     def configured(self) -> bool:
-        if not self.base_url or not self.models:
+        if not self.models or (self.kind == "openai" and not self.base_url):
             return False
         return self.local or bool(self.api_key)
 
@@ -54,6 +61,18 @@ _SLOTS = {
         api_key_env="OPENROUTER_API_KEY", rpm=20,
         extra_headers={"X-Title": "Blast Radius"},
     ),
+    "openai": dict(
+        base_url="https://api.openai.com/v1",
+        models=["gpt-5-mini"],                 # set OPENAI_MODELS to the models your account has
+        api_key_env="OPENAI_API_KEY", rpm=60,
+        send_temperature=False,                # OpenAI reasoning models only accept the default temperature
+    ),
+    "anthropic": dict(
+        base_url="",                           # the Anthropic SDK knows its endpoint
+        models=["claude-opus-5-5"],
+        api_key_env="ANTHROPIC_API_KEY", rpm=50,
+        kind="anthropic", send_temperature=False,
+    ),
     "custom": dict(
         base_url="",  # filled from CUSTOM_LLM_BASE_URL
         models=[],    # filled from CUSTOM_MODELS
@@ -66,7 +85,7 @@ _SLOTS = {
     ),
 }
 
-DEFAULT_ORDER = "groq,gemini,openrouter,custom,ollama"
+DEFAULT_ORDER = "groq,gemini,openrouter,openai,anthropic,custom,ollama"
 
 
 def _env_list(name: str) -> list[str] | None:

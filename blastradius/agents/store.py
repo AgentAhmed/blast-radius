@@ -96,7 +96,7 @@ def _now() -> int:
     return int(time.time())
 
 
-def _json(value) -> str:
+def to_json(value) -> str:
     text = json.dumps(value, default=str, ensure_ascii=False)
     return text if len(text) <= MAX_OUTPUT_CHARS else text[:MAX_OUTPUT_CHARS] + '..."[truncated]"'
 
@@ -118,8 +118,8 @@ def add_step(tenant, run_id: str, n: int, kind: str, *, tool=None, args=None, ou
     step_id = f"{run_id}-{n}"
     g.query(ADD_STEP, {
         "run": run_id, "id": step_id, "n": n, "kind": kind, "tool": tool,
-        "args": _json(args) if args is not None else None,
-        "output": _json(output) if output is not None else None,
+        "args": to_json(args) if args is not None else None,
+        "output": to_json(output) if output is not None else None,
         "message": json.dumps(message) if message is not None else None,
         "tool_call_id": tool_call_id, "provider": provider, "model": model,
         "tokens": tokens, "latency_ms": latency_ms, "now": _now(),

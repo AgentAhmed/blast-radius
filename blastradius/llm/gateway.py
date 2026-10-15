@@ -9,8 +9,12 @@ How a call is routed
      401/403 bad key     -> disable the provider for this process, try next
      404 unknown model   -> disable that model, try next
      400 bad request     -> try the next model (e.g. a model that produced invalid tool calls)
+     refusal (Claude)    -> try the next model
 4. If nothing can answer, raise AllProvidersExhausted with the earliest time a retry makes sense,
    so the caller can checkpoint and resume later instead of failing.
+
+OpenAI-compatible slots and the Claude slot raise different exception classes (openai.* / anthropic.*);
+_classify maps both to the same decisions.
 """
 import logging
 import time
@@ -18,8 +22,10 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Callable
 
+import anthropic
 import openai
 
+from blastradius.llm.anthropic_adapter import AnthropicChatAdapter, ModelRefusal
 from blastradius.llm.providers import Provider, load_providers
 
 log = logging.getLogger("blastradius.llm")
@@ -109,7 +115,11 @@ class LLMGateway:
     # -- internals ----------------------------------------------------------------------
     def _try(self, p, model, messages, tools, temperature, max_tokens, attempts) -> LLMResult | None:
         client = self._client(p)
-        kwargs = {"model": model, "messages": messages, "temperature": temperature}
+        if p.kind == "openai":   # fields starting with "_" (e.g. Claude's raw blocks) are ours, not the API's
+            messages = [{k: v for k, v in m.items() if not k.startswith("_")} for m in messages]
+        kwargs = {"model": model, "messages": messages}
+        if p.send_temperature:
+            kwargs["temperature"] = temperature
         if tools:
             kwargs["tools"] = tools
         if max_tokens:
@@ -120,26 +130,11 @@ class LLMGateway:
         self._limiters[p.name].record()
         try:
             resp = client.chat.completions.create(**kwargs)
-        except openai.RateLimitError as e:
-            self._cool(p.name, model, _retry_after(e) or DEFAULT_RATE_LIMIT_COOLDOWN)
-            return self._failed(attempts, p, model, "rate limited", e)
-        except openai.AuthenticationError as e:
-            self._cool(p.name, None, FOREVER)
-            return self._failed(attempts, p, model, "bad api key", e)
-        except openai.PermissionDeniedError as e:
-            self._cool(p.name, None, FOREVER)
-            return self._failed(attempts, p, model, "permission denied", e)
-        except openai.NotFoundError as e:
-            self._cool(p.name, model, FOREVER)
-            return self._failed(attempts, p, model, "model not found", e)
-        except openai.BadRequestError as e:
-            return self._failed(attempts, p, model, "bad request", e)
-        except (openai.APIConnectionError, openai.APITimeoutError, openai.InternalServerError) as e:
-            self._cool(p.name, None, PROVIDER_DOWN_COOLDOWN)
-            return self._failed(attempts, p, model, "provider unavailable", e)
-        except openai.APIStatusError as e:
-            self._cool(p.name, None, PROVIDER_DOWN_COOLDOWN)
-            return self._failed(attempts, p, model, f"http {e.status_code}", e)
+        except _API_ERRORS + (ModelRefusal,) as e:
+            reason, scope, seconds = _classify(e)
+            if seconds:
+                self._cool(p.name, model if scope == "model" else None, seconds)
+            return self._failed(attempts, p, model, reason, e)
 
         usage = resp.usage.model_dump() if getattr(resp, "usage", None) else {}
         return LLMResult(message=resp.choices[0].message, provider=p.name, model=model, usage=usage,
@@ -181,11 +176,41 @@ class LLMGateway:
 
     @staticmethod
     def _openai_client(p: Provider):
+        if p.kind == "anthropic":
+            return AnthropicChatAdapter(p)
         return openai.OpenAI(base_url=p.base_url, api_key=p.api_key or "not-needed",
                              timeout=60 if not p.local else 180, max_retries=0)
 
 
-def _retry_after(err: openai.APIStatusError) -> float | None:
+_API_ERRORS = (openai.APIError, anthropic.APIError)
+
+
+def _is(err, name: str) -> bool:
+    """Same-named exception class in either SDK (both follow the same naming)."""
+    return isinstance(err, (getattr(openai, name, ()), getattr(anthropic, name, ())))
+
+
+def _classify(err) -> tuple[str, str | None, float | None]:
+    """(reason, cooldown scope 'model'/'provider'/None, cooldown seconds). Most specific first."""
+    if isinstance(err, ModelRefusal):
+        return f"refused: {err}", None, None
+    if _is(err, "RateLimitError"):
+        return "rate limited", "model", _retry_after(err) or DEFAULT_RATE_LIMIT_COOLDOWN
+    if _is(err, "AuthenticationError"):
+        return "bad api key", "provider", FOREVER
+    if _is(err, "PermissionDeniedError"):
+        return "permission denied", "provider", FOREVER
+    if _is(err, "NotFoundError"):
+        return "model not found", "model", FOREVER
+    if _is(err, "BadRequestError"):
+        return "bad request", None, None
+    if _is(err, "APIConnectionError") or _is(err, "APITimeoutError") or _is(err, "InternalServerError"):
+        return "provider unavailable", "provider", PROVIDER_DOWN_COOLDOWN
+    status = getattr(err, "status_code", None)
+    return (f"http {status}" if status else "provider error"), "provider", PROVIDER_DOWN_COOLDOWN
+
+
+def _retry_after(err) -> float | None:
     try:
         value = err.response.headers.get("retry-after")
         return float(value) if value else None

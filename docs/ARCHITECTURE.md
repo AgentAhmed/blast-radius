@@ -11,7 +11,7 @@
 | Agents | `agents/incident_agents.py` | Triage, investigator, scribe, company brain. |
 | Tools | `agents/tools.py` | JSON-schema tool definitions wrapping the queries, with validation. |
 | Worker | `agents/worker.py` | Claims `Task` nodes, runs the agent for each, resumes paused runs. |
-| LLM gateway | `llm/` | Ordered provider slots, fallback, cooldowns, requests-per-minute budget. |
+| LLM gateway | `llm/` | Ordered provider slots (Groq, Gemini, OpenRouter, OpenAI, Claude, custom, Ollama), fallback, cooldowns, requests-per-minute budget. Claude goes through an official-SDK adapter. |
 | Actions | `actions.py` | Page the on-call person, open a GitHub issue. Each happens once. |
 | API | `api.py` | REST for the UI. Runs the worker thread and serves the built UI. |
 | MCP | `mcp_server.py` | The graph tools and the brain agent, over the Model Context Protocol. |
@@ -58,7 +58,7 @@ sequenceDiagram
 | **Times as epoch ints, shown as "2h ago" to the LLM** | Datetime strings | Fast range filters in Cypher. LLMs misread raw epochs, which we saw in testing. |
 | **Evidence = cited entities** | Everything the agent looked at | Shows *why*, not everything the agent read. |
 | **One graph per tenant** | Tenant property on every node | Real isolation, simpler queries, FalkorDB multigraph. |
-| **OpenAI-compatible gateway** | One SDK per provider | Groq, Gemini, OpenRouter, Ollama and others share one client and one fallback path. |
+| **Provider-neutral gateway** | Lock in to one vendor | Groq, Gemini, OpenRouter, OpenAI, Ollama and any OpenAI-compatible API share one client. Claude uses its official SDK behind an adapter. One fallback path covers them all. |
 
 ## Failure handling
 | Failure | Behaviour |

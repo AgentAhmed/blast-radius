@@ -70,7 +70,7 @@ flowchart LR
   INV --> |Finding, PAGED, issue| FDB
   SCR --> |Postmortem, Lesson,<br/>embeddings, SIMILAR_TO| FDB
   BRAIN[Company brain<br/>Q&A agent] --> FDB
-  INV & SCR & BRAIN --> GW[LLM gateway<br/>Groq → Gemini → OpenRouter → custom → Ollama]
+  INV & SCR & BRAIN --> GW[LLM gateway<br/>Groq → Gemini → OpenRouter → OpenAI → Claude → custom → Ollama]
   FDB[(FalkorDB<br/>graph per tenant)]
   MCP[MCP server] --> FDB
   UI[Web console] --> API[FastAPI + worker] --> FDB
@@ -147,20 +147,28 @@ To work on the UI with hot reload, run `cd ui && npm run dev` and open http://lo
 python -m blastradius.cli root-cause payment checkout frontend frontend-proxy   # graph tools from the terminal
 python -m blastradius.agents.worker                                            # standalone worker(s)
 python -m blastradius.mcp_server                                               # MCP server (stdio)
-pytest                                                                          # 31 tests (FalkorDB must be running)
+pytest                                                                          # 38 tests (FalkorDB must be running)
 ```
 
-## LLM providers: free tiers first, local last
-Agents call LLMs through a small gateway ([blastradius/llm/gateway.py](blastradius/llm/gateway.py)). Every slot
-speaks the OpenAI chat API, and slots are tried in order:
+## LLM providers: free tiers first, paid next, local last
+Agents call LLMs through a provider-neutral gateway ([blastradius/llm/](blastradius/llm/)). Slots are tried in
+order, and within a slot its models are tried in order. Every slot is a ready-made template: add a key to `.env`
+and it joins the chain, with no code change.
 
-| # | Slot | Needs | Default models |
-|---|---|---|---|
-| 1 | Groq | `GROQ_API_KEY` (free) | gpt-oss-120b → gpt-oss-20b → qwen3.8-27b |
-| 2 | Gemini | `GEMINI_API_KEY` (free) | gemini-2.5-flash |
-| 3 | OpenRouter | `OPENROUTER_API_KEY` | free models |
-| 4 | Custom | any OpenAI-compatible URL + key | your choice |
-| 5 | Ollama | nothing, runs locally | qwen3:8b |
+| # | Slot | Needs | Default models | How it's called |
+|---|---|---|---|---|
+| 1 | Groq | `GROQ_API_KEY` (free) | gpt-oss-120b → gpt-oss-20b → qwen3.8-27b | OpenAI-compatible |
+| 2 | Gemini | `GEMINI_API_KEY` (free) | gemini-2.5-flash | OpenAI-compatible |
+| 3 | OpenRouter | `OPENROUTER_API_KEY` | free models | OpenAI-compatible |
+| 4 | OpenAI | `OPENAI_API_KEY` | gpt-5-mini | OpenAI API |
+| 5 | Anthropic Claude | `ANTHROPIC_API_KEY` | claude-opus-5-5 | **Official Anthropic SDK** adapter |
+| 6 | Custom | any OpenAI-compatible URL + key | your choice | OpenAI-compatible |
+| 7 | Ollama | nothing, runs locally | qwen3:8b | OpenAI-compatible |
+
+The Claude adapter ([anthropic_adapter.py](blastradius/llm/anthropic_adapter.py)) converts the agents'
+conversation to Claude's format. It passes Claude's thinking blocks back unchanged on every turn, so they are saved
+with each step and replayed byte-identically after a resume. It also turns on server-side refusal fallbacks.
+Models that reject a `temperature` (OpenAI reasoning models, Claude) don't get one.
 
 - **Empty key:** the slot is skipped.
 - **Rate limits:** a rate-limited model cools down for the `retry-after` time and the next model is tried.

@@ -72,7 +72,8 @@ def execute(tenant: str, spec: AgentSpec, run_id: str, gw: LLMGateway | None = N
         for call in _pending_calls(messages):
             n += 1
             result, final = _run_tool(tenant, spec, run_id, n, call)
-            messages.append({"role": "tool", "tool_call_id": call["id"], "content": json.dumps(result, default=str)})
+            # Send exactly what is stored, so a resumed conversation is byte-identical to the live one.
+            messages.append({"role": "tool", "tool_call_id": call["id"], "content": store.to_json(result)})
             if final is not None:
                 return _finish(tenant, spec, run_id, final)
 
@@ -208,6 +209,8 @@ TERMINAL_NAMES = {"submit_findings", "final_answer", "write_postmortem"}
 
 def _assistant_dict(message) -> dict:
     out = {"role": "assistant", "content": message.content or ""}
+    if getattr(message, "raw_blocks", None):   # Claude: keep thinking blocks to pass back unchanged
+        out["_anthropic"] = message.raw_blocks
     if getattr(message, "tool_calls", None):
         out["tool_calls"] = [{"id": tc.id, "type": "function",
                               "function": {"name": tc.function.name, "arguments": tc.function.arguments or "{}"}}

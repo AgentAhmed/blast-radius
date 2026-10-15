@@ -46,13 +46,29 @@ Key properties:
 | **Per tenant** | a separate graph per org | — | everything |
 
 ## LLM gateway ([llm/gateway.py](../blastradius/llm/gateway.py))
-- Slots, in order: `groq, gemini, openrouter, custom, ollama` (`LLM_PROVIDER_ORDER`).
+- Slots, in order: `groq, gemini, openrouter, openai, anthropic, custom, ollama` (`LLM_PROVIDER_ORDER`).
+- Two slot kinds:
+  - **`openai`:** one OpenAI client with a different base URL per slot.
+  - **`anthropic`:** Claude through the official Anthropic SDK
+    ([anthropic_adapter.py](../blastradius/llm/anthropic_adapter.py)).
+    - The adapter converts the OpenAI-format history to Claude turns. Parallel tool results go in one user turn,
+      results before any note.
+    - It keeps Claude's raw content blocks on the assistant message (`_anthropic`), so thinking blocks are passed
+      back unchanged.
+    - Those `_` fields are stripped before a conversation is sent to an OpenAI-format slot, so runs can switch
+      providers mid-way.
+    - Tool results sent to the model are exactly the stored strings, so a resumed conversation is byte-identical
+      to the live one. Claude requires an unchanged prefix for its thinking blocks to stay valid.
 - Each slot has several models, tried in order: `GROQ_MODELS=...`.
 - A slot with no key is skipped. Ollama is skipped when it isn't running.
 - Each provider has a requests-per-minute budget (sliding 60 s window). If waiting would take more than 5 s, the
   gateway moves to the next provider.
-- Error handling: 429 → that model cools down for `retry-after`. 5xx, timeout or connection error → the provider
-  cools down for 30 s. 401/403 → provider disabled. 404 → model disabled. 400 → next model.
+- Error handling (the same for `openai.*` and `anthropic.*` exceptions, via `_classify`):
+  - 429 → that model cools down for `retry-after`.
+  - 5xx, overloaded, timeout or connection error → the provider cools down for 30 s.
+  - 401/403 → provider disabled.
+  - 404 → model disabled.
+  - 400 or a model refusal → next model.
 - When nothing can answer, it raises `AllProvidersExhausted(resume_at)`, which the runtime turns into a pause.
 - Each LLM step records which provider and model answered, and any fallbacks on the way. The UI shows it.
 
