@@ -18,7 +18,7 @@ MATCH (root:Component {name: $root})
 OPTIONAL MATCH p = (dep:Component)-[:DEPENDS_ON*1..3]->(root)
 WITH root, dep, min(length(p)) AS hops
 RETURN root.name AS root, [l IN labels(root) WHERE l <> 'Component'][0] AS root_kind,
-       collect({name: dep.name, hops: hops}) AS dependents
+       collect({name: dep.name, hops: hops, consumer: size([(dep)-[:CONSUMES]->(root) | 1]) > 0}) AS dependents
 """
 
 CREATE_ALERTS = """
@@ -83,9 +83,10 @@ LIST_INCIDENTS = """
 MATCH (i:Incident)
 OPTIONAL MATCH (i)-[:ROOT_CAUSE]->(rc:Component)
 OPTIONAL MATCH (i)-[:HAS_FINDING]->(f:Finding)
+WITH i, rc, collect(f.root_cause)[0] AS found
 RETURN i.id AS id, i.title AS title, i.severity AS severity, i.status AS status,
        i.opened_at AS opened_at, i.resolved_at AS resolved_at,
-       coalesce(rc.name, max(f.root_cause)) AS root_cause
+       coalesce(rc.name, found) AS root_cause
 ORDER BY opened_at DESC
 LIMIT $limit
 """
@@ -106,8 +107,8 @@ def simulate_fault(flag: str, tenant: str | None = None, now: int | None = None)
     for d in sorted(info["dependents"], key=lambda d: d["hops"] or 0):
         if not d["name"] or d["name"] in NO_ALERTS or d["hops"] > ALERT_HOPS:
             continue
-        if info["root_kind"] == "Topic":
-            signal, sev, value = "consumer_lag", "warning", 1800 * (4 - d["hops"])
+        if d["consumer"]:      # consumers of a broken topic fall behind rather than erroring
+            signal, sev, value = "consumer_lag", "warning", 1800
         else:
             signal = "error_rate" if d["hops"] <= 2 else "latency_p99"
             sev = "critical" if d["hops"] == 1 else "warning"
