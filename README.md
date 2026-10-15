@@ -98,6 +98,30 @@ python -m blastradius.cli experts payment
 pytest
 ```
 
+## LLM providers (free tiers first, local last)
+The agents call LLMs through a small gateway ([blastradius/llm/gateway.py](blastradius/llm/gateway.py)).
+Every slot speaks the OpenAI chat API, and slots are tried in order:
+
+| # | Slot | Needs | Default models |
+|---|---|---|---|
+| 1 | Groq | `GROQ_API_KEY` (free) | gpt-oss-120b → gpt-oss-20b → qwen3.8-27b |
+| 2 | Gemini | `GEMINI_API_KEY` (free) | gemini-2.5-flash |
+| 3 | OpenRouter | `OPENROUTER_API_KEY` | free models |
+| 4 | Custom | any OpenAI-compatible URL + key | your choice |
+| 5 | Ollama | nothing; runs locally | qwen3:8b |
+
+- **Empty key:** the slot is skipped, so you only need **one** key, or none at all if Ollama is running.
+- **Rate limits:** a rate-limited model cools down for the provider's `retry-after` time.
+- **Outages:** a provider that is down is skipped briefly.
+- **Bad keys:** a provider with an invalid key is disabled for the run.
+- **Own budget:** each provider has a requests-per-minute budget so we stay under free-tier limits.
+- **Everything exhausted:** the gateway reports when to retry, so agent runs can pause and resume (see agent checkpoints).
+
+```bash
+python -m blastradius.llm status   # which slots are ready
+python -m blastradius.llm ping     # one tiny call through the chain
+```
+
 ## AI usage disclosure
 This project was built with help from an AI coding assistant (Claude Code), used for scaffolding,
 boilerplate, test writing and debugging. The graph model, the queries and the design decisions were reviewed,
