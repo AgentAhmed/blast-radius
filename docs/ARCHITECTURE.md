@@ -78,4 +78,8 @@ sequenceDiagram
 - **Cloud:** one container from the `Dockerfile` (UI + API + worker) and a FalkorDB instance, either FalkorDB Cloud
   or a container. Set `FALKORDB_HOST/PORT/USERNAME/PASSWORD`, `GROQ_API_KEY` and `SEED_ON_START=1`. The demo
   tenants are created on first start.
+- **Hugging Face Spaces (single container):** [deploy/huggingface/Dockerfile](../deploy/huggingface/Dockerfile)
+  builds on the FalkorDB image and runs FalkorDB and the app together on port 7860. Build the Space folder with
+  `python deploy/huggingface/make_space.py ../blast-radius-space`, push it to a Docker Space, and add
+  `GROQ_API_KEY` as a Space secret. The demo tenants are seeded on start; data resets when the Space restarts.
 - **Ports:** UI and API 8007, UI dev server 3007, FalkorDB 6379, FalkorDB Browser 3006.
