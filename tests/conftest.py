@@ -1,7 +1,7 @@
 """Tests must never act in the outside world: drop real credentials loaded from .env before every test."""
 import pytest
 
-OUTBOUND = ["GITHUB_TOKEN", "GITHUB_REPO", "SLACK_WEBHOOK_URL", "DISCORD_WEBHOOK_URL"]
+OUTBOUND = ["GITHUB_TOKEN", "GITHUB_REPO", "GITHUB_API_URL", "SLACK_WEBHOOK_URL", "DISCORD_WEBHOOK_URL"]
 
 
 @pytest.fixture(autouse=True)

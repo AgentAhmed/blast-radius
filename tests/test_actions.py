@@ -82,3 +82,41 @@ def test_skipped_when_no_webhook_is_configured(monkeypatch):
     monkeypatch.delenv("DISCORD_WEBHOOK_URL")
     assert notify() == []
     assert Hook.received == []
+
+
+class FakeGitHub(BaseHTTPRequestHandler):
+    calls: list = []
+
+    def _handle(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        FakeGitHub.calls.append((self.command, self.path, body))
+        out = {"html_url": "https://github.com/o/r/issues/7"} if self.path.endswith("/issues") else {}
+        data = json.dumps(out).encode()
+        self.send_response(201)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    do_POST = do_PATCH = _handle
+
+    def log_message(self, *args):
+        pass
+
+
+def test_resolving_comments_on_and_closes_the_issue(monkeypatch):
+    srv = HTTPServer(("127.0.0.1", 0), FakeGitHub)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    monkeypatch.setenv("GITHUB_API_URL", f"http://127.0.0.1:{srv.server_port}")
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setenv("GITHUB_REPO", "https://github.com/o/r")
+    try:
+        assert actions.close_github_issue(TENANT, "INC-1", "fixed") is None      # no issue opened yet
+        assert actions.github_issue(TENANT, "INC-1", "t", "b")["status"] == "created"
+        closed = actions.close_github_issue(TENANT, "INC-1", "Rolled back")
+        assert closed["status"] == "closed"
+        assert actions.close_github_issue(TENANT, "INC-1", "again")["status"] == "already_done"
+        assert [(m, p) for m, p, _ in FakeGitHub.calls] == [
+            ("POST", "/repos/o/r/issues"), ("POST", "/repos/o/r/issues/7/comments"), ("PATCH", "/repos/o/r/issues/7")]
+        assert FakeGitHub.calls[2][2] == {"state": "closed", "state_reason": "completed"}
+    finally:
+        srv.shutdown()

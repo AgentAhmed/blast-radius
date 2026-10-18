@@ -91,6 +91,12 @@ export default function IncidentPanel({ detail, queries, onResolve, onResume }: 
                 : <span className="muted">{a.status === "dry_run" ? "dry run (set GITHUB_TOKEN + GITHUB_REPO)" : a.status}</span>}
             </div>
           ))}
+          {detail.actions.filter((a) => a.kind === "github_issue_closed").map((a) => (
+            <div key={a.id} className="act">
+              ✅ GitHub issue closed with the fix —{" "}
+              <span className={a.status === "closed" ? "" : "muted"}>{a.status}</span>
+            </div>
+          ))}
           {detail.actions.filter((a) => a.kind === "slack" || a.kind === "discord").map((a) => (
             <div key={a.id} className="act">
               💬 Posted to {a.kind === "slack" ? "Slack" : "Discord"} ({a.detail.split(":")[0]}) —{" "}

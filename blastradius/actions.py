@@ -40,6 +40,24 @@ def page(tenant, incident: str, handle: str, reason: str) -> dict:
     return {"id": action_id, "status": "sent"}
 
 
+def _github_repo() -> tuple[str | None, str | None]:
+    token, repo = os.getenv("GITHUB_TOKEN"), os.getenv("GITHUB_REPO")
+    if repo:   # accept "owner/repo" or a full https://github.com/owner/repo URL
+        repo = repo.strip().removesuffix(".git").removeprefix("https://github.com/").strip("/")
+    return token, repo
+
+
+def _github(token: str, method: str, path: str, body: dict) -> dict:
+    base = os.getenv("GITHUB_API_URL", "https://api.github.com")
+    req = urllib.request.Request(
+        f"{base}{path}", method=method, data=json.dumps(body).encode(),
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                 "Content-Type": "application/json", "User-Agent": "blast-radius"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.load(resp)
+
+
 def github_issue(tenant, incident: str, title: str, body: str) -> dict:
     g = db.graph(tenant)
     action_id = f"{incident}-issue"
@@ -47,25 +65,43 @@ def github_issue(tenant, incident: str, title: str, body: str) -> dict:
     if existing and existing[0]["status"] == "created":
         return {"id": action_id, "status": "already_done", "url": existing[0]["url"]}
 
-    token, repo = os.getenv("GITHUB_TOKEN"), os.getenv("GITHUB_REPO")
-    if repo:   # accept "owner/repo" or a full https://github.com/owner/repo URL
-        repo = repo.strip().removesuffix(".git").removeprefix("https://github.com/").strip("/")
+    token, repo = _github_repo()
     status, url = "dry_run", None
     if token and repo:
-        req = urllib.request.Request(
-            f"https://api.github.com/repos/{repo}/issues", method="POST",
-            data=json.dumps({"title": title, "body": body, "labels": ["incident"]}).encode(),
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
-                     "User-Agent": "blast-radius"},
-        )
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                url = json.load(resp)["html_url"]
-                status = "created"
+            url = _github(token, "POST", f"/repos/{repo}/issues",
+                          {"title": title, "body": body, "labels": ["incident"]})["html_url"]
+            status = "created"
         except OSError as e:
             status = f"failed: {e}"
     g.query(RECORD_ACTION, {"incident": incident, "id": action_id, "kind": "github_issue", "status": status,
                             "url": url, "detail": title, "now": int(time.time())})
+    return {"id": action_id, "status": status, "url": url}
+
+
+def close_github_issue(tenant, incident: str, comment: str) -> dict | None:
+    """On resolution: comment the fix on the incident's issue and close it. Skipped if no issue was opened."""
+    g = db.graph(tenant)
+    issue = db.rows(g.ro_query(GET_ACTION, {"id": f"{incident}-issue"}))
+    if not issue or issue[0]["status"] != "created" or not issue[0]["url"]:
+        return None
+    action_id = f"{incident}-issue-closed"
+    existing = db.rows(g.ro_query(GET_ACTION, {"id": action_id}))
+    if existing and existing[0]["status"] == "closed":
+        return {"id": action_id, "status": "already_done", "url": existing[0]["url"]}
+    token, repo = _github_repo()
+    url = issue[0]["url"]
+    status = "dry_run"
+    if token and repo:
+        number = url.rstrip("/").rsplit("/", 1)[-1]
+        try:
+            _github(token, "POST", f"/repos/{repo}/issues/{number}/comments", {"body": comment})
+            _github(token, "PATCH", f"/repos/{repo}/issues/{number}", {"state": "closed", "state_reason": "completed"})
+            status = "closed"
+        except OSError as e:
+            status = f"failed: {e}"
+    g.query(RECORD_ACTION, {"incident": incident, "id": action_id, "kind": "github_issue_closed", "status": status,
+                            "url": url, "detail": "Issue closed with the fix", "now": int(time.time())})
     return {"id": action_id, "status": status, "url": url}
 
 

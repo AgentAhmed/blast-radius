@@ -236,8 +236,12 @@ def resolve(tenant: str, incident_id: str, fix: str, fix_kind: str = "fix", root
     if root not in queries.component_names(tenant):
         raise ValueError("root_cause is required when the incident has no finding")
     db.graph(tenant).query("MATCH (i:Incident {id: $id}) SET i.status = 'resolving'", {"id": incident_id})
+    closed = actions.close_github_issue(
+        tenant, incident_id, f"✅ Resolved.\n\n**Root cause:** {root}\n**Fix ({fix_kind}):** {fix}\n\n"
+                             f"The scribe agent is recording this in incident memory.")
     actions.notify(tenant, incident_id, "resolved", f"✅ {incident_id} resolved · root cause: {root}",
-                   [f"Fix ({fix_kind}): {fix}", "The scribe agent is recording this in incident memory."])
+                   [f"Fix ({fix_kind}): {fix}", "The scribe agent is recording this in incident memory."]
+                   + (["Tracking issue closed."] if closed and closed["status"] == "closed" else []))
     return store.create_task(tenant, "record", incident_id, created_by="human",
                              payload={"fix": fix, "fix_kind": fix_kind, "root_cause": root})
 
