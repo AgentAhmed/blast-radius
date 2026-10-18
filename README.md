@@ -237,9 +237,10 @@ docs/                                   design, architecture, graph model, agent
   No real people or private data.
 
 ## AI usage disclosure
-This project was built with help from an AI coding assistant (Claude Code), used for scaffolding,
-boilerplate, test writing and debugging. The graph model, the queries and the design decisions were reviewed,
-verified and are understood by the author. Details are kept up to date in this section.
+I built this project with an AI coding assistant (Claude Code), which helped write code, tests and
+documentation and debug problems along the way. I chose the problem and the tracks, set the requirements and
+constraints (free-tier LLMs first, real connectors, privacy defaults), made the product decisions, and reviewed, ran
+and tested the results, including the evaluation against hidden ground truth.
 
 ## License
 MIT
