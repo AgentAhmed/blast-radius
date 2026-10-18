@@ -237,8 +237,8 @@ docs/                                   design, architecture, graph model, agent
   No real people or private data.
 
 ## AI usage disclosure
-I built this project with an AI coding assistant (Claude Code), which helped write code, tests and
-documentation and debug problems along the way. I chose the problem and the tracks, set the requirements and
+Built this project with an AI coding assistant (Claude Code), which helped write code, tests and
+documentation and debug problems along the way. Choosen the problem and the tracks, set the requirements and
 constraints (free-tier LLMs first, real connectors, privacy defaults), made the product decisions, and reviewed, ran
 and tested the results, including the evaluation against hidden ground truth.
 
