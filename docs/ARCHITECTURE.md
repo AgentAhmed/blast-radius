@@ -56,7 +56,7 @@ sequenceDiagram
 | **Fixed Cypher tools**, no LLM-written Cypher | Text-to-Cypher | Reliable, safe, testable and cheap on tokens. The LLM's job is to choose and explain. |
 | **Deterministic triage** | LLM triage | Grouping alerts and scoring severity need no judgement, so it costs zero LLM calls. |
 | **Own agent loop** (~250 lines) | LangGraph / CrewAI | Checkpoints must live in FalkorDB, and every line needs to be explainable. |
-| **Derived `DEPENDS_ON` edge** | Run algorithms per edge type | FalkorDB algorithms take one relationship type. The derived edge also records `via`. |
+| **Derived `DEPENDS_ON` edge** | Pass all four edge types to each algorithm | The `algo.pageRank` form we use takes one relationship type; one derived edge keeps PageRank, shortest paths and label propagation on the same definition of "depends on". It also records `via`. |
 | **Local embeddings** (bge-small, 384-d) | Embedding API | Free, no rate limits, works offline. Groq has no embeddings API. |
 | **Vector + structure** similarity | Vector only | "Same root-cause component" is a stronger signal than wording. |
 | **Times as epoch ints, shown as "2h ago" to the LLM** | Datetime strings | Fast range filters in Cypher. LLMs misread raw epochs, which we saw in testing. |
