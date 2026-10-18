@@ -114,6 +114,9 @@ graph LR
 The Cypher queries and graph algorithms the product depends on: **[QUERIES.md](QUERIES.md)**.
 
 ## Quick start (local)
+**Deployment:** there is no hosted demo. Blast Radius runs fully on your machine: FalkorDB in Docker, a free Groq key
+(or Ollama with no key), and the steps below, in about 10 minutes. The demo video shows it running.
+
 Requirements: Docker, Python 3.12, [uv](https://docs.astral.sh/uv/), Node 20+. You need **one** of:
 a free [Groq key](https://console.groq.com/keys), or [Ollama](https://ollama.com/download) with `ollama pull qwen3:8b`.
 
